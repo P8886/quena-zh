@@ -176,6 +176,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
                     &item(app, "rules.bp-after", "After Responses", Some("Alt+F11"))?,
                     &item(app, "rules.bp-llm", "Before LLM Requests", None)?,
                     &item(app, "rules.bp-off", "Off", Some("Shift+F11"))?,
+                    &item(app, "rules.bp-rules", "Breakpoint Rules…", None)?,
                 ],
             )?,
             &item(app, "view.autoresponder", "Mock Rules", None)?,

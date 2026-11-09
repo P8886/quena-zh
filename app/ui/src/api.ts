@@ -1194,6 +1194,18 @@ export interface MockJobResult {
   droppedHeaders: number;
 }
 
+export interface BreakpointRule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  phase: "request" | "response";
+  clientIp: string;
+  host: string;
+  url: string;
+  method: string;
+  status: number | null;
+}
+
 export interface BpState {
   allRequests: boolean;
   allResponses: boolean;
@@ -1204,6 +1216,7 @@ export interface BpState {
   timeoutS: number;
   /** `bpllm`: before LLM API requests matching all of these. */
   llm?: { model: string; tool: string; minTokens: number } | null;
+  rules?: BreakpointRule[];
 }
 
 export interface Resume {
@@ -1560,6 +1573,7 @@ export const api = {
   bpGet: () => invoke<BpState>("bp_get"),
   bpSet: (state: BpState) => invoke<void>("bp_set", { state }),
   bpPaused: () => invoke<{ id: SessionId; phase: string; url: string; since: number }[]>("bp_paused"),
+  bpRulesSet: (entries: BreakpointRule[], onlyRules: boolean) => invoke<void>("bp_rules_set", { entries, onlyRules }),
   bpResume: (id: SessionId, resume: Resume) => invoke<void>("bp_resume", { id, resume }),
   editableBody: (id: SessionId, part: Part, charset?: string | null) => invoke<{ text: string; charset: string }>("editable_body", { id, part, charset: charset ?? null }),
   editSession: (id: SessionId, edit: { request: Omit<Resume, "action"> | null; response: Omit<Resume, "action"> | null }) => invoke<void>("edit_session", { id, edit }),

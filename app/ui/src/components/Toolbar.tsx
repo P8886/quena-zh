@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { AppWindow, ChevronDown, Globe, PanelLeft, FileArchive, History, MessageSquareText, Play, RotateCw, Save, Search, Settings, Trash2, Waves, WandSparkles } from "lucide-react";
+import { AppWindow, ChevronDown, CirclePause, Globe, PanelLeft, FileArchive, History, MessageSquareText, Play, RotateCw, Save, Search, Settings, Trash2, Waves, WandSparkles } from "lucide-react";
 import { api } from "../api";
 import { actions } from "../actions";
 import { set, useStore } from "../store";
@@ -81,6 +81,7 @@ export function Toolbar() {
           }
         />
         <Btn icon={Play} label={paused ? t("Resume {n}", { n: paused }) : undefined} active={!!paused} disabled={!paused} title={t("Resume all paused sessions (G)")} onClick={() => import("../breakpoints").then((m) => m.goAll())} />
+        <Btn icon={CirclePause} title={t("Breakpoint Rules…")} onClick={() => set({ dialog: { kind: "breakpoints" } })} />
       </div>
       <div className="tb-group">
         <Btn icon={Waves} active={settings?.stream ?? true} title={t("Stream responses to the client instead of buffering them")} onClick={() => patchSettings((s) => (s.stream = !s.stream))} />

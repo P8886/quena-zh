@@ -63,6 +63,7 @@ export function sessionMenu(): MenuItem[] {
   return [
     ...scriptItems,
     { label: get().focusId != null && get().unlockedSessions.has(get().focusId!) ? t("Save and Lock") : t("Unlock and Edit"), shortcut: "F2", disabled: !one, action: () => import("./sessionEdits").then((m) => m.toggleSessionEditor()) },
+    { label: t("Breakpoint for This Request…"), disabled: !one, action: () => set({ dialog: { kind: "breakpoints", session: get().focusId ?? undefined } }) },
     {
       label: t("Mock Rules"),
       submenu: [

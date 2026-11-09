@@ -23,6 +23,7 @@ const COMMANDS: Cmd[] = [
   { id: "rules.bp-before", label: t("Break before requests"), group: t("Capture"), keys: "F11" },
   { id: "rules.bp-after", label: t("Break after responses"), group: t("Capture"), keys: "Alt F11" },
   { id: "rules.bp-off", label: t("Breakpoints off"), group: t("Capture"), keys: "Shift F11" },
+  { id: "rules.bp-rules", label: t("Breakpoint Rules…"), group: t("Capture") },
   { id: "edit.unlock", label: t("Unlock and Edit"), group: t("Sessions"), keys: "F2" },
   { id: "view.replays", label: t("Replay Progress…"), group: t("View") },
   { id: "tools.https", label: t("HTTPS settings"), group: t("Capture") },

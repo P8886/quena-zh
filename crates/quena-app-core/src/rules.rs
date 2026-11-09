@@ -634,6 +634,67 @@ pub struct BreakpointState {
     pub timeout_s: u64,
     /// `bpllm`: before LLM API requests that match all of these.
     pub llm: Option<LlmBreak>,
+    /// Named AND conditions; separate rules are alternatives.
+    pub rules: Vec<BreakpointRule>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum BreakpointPhase {
+    #[default]
+    Request,
+    Response,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct BreakpointRule {
+    pub id: String,
+    pub name: String,
+    pub enabled: bool,
+    pub phase: BreakpointPhase,
+    /// Exact source IP (IPv4 or IPv6); empty means any client, including local replays.
+    pub client_ip: String,
+    /// Host glob, optionally including its port.
+    pub host: String,
+    /// Case-insensitive URL/path substring.
+    pub url: String,
+    pub method: String,
+    pub status: Option<u16>,
+}
+
+impl BreakpointRule {
+    fn matches(&self, s: &SessionView, req: &RequestHead, resp: Option<&ResponseHead>) -> bool {
+        if !self.enabled || (self.phase == BreakpointPhase::Response) != resp.is_some() {
+            return false;
+        }
+        let (host, _) = quena_model::split_url(&req.url, &req.method);
+        let host = host.rsplit_once('@').map_or(host.as_str(), |(_, host)| host);
+        let client_matches = self.client_ip.is_empty() || self.client_ip.parse::<std::net::IpAddr>().ok().is_some_and(|ip| s.client_ip.parse::<std::net::IpAddr>().is_ok_and(|c| c.to_canonical() == ip.to_canonical()));
+        client_matches
+            && (self.host.is_empty() || quena_query::glob_match(&self.host, host) || quena_query::glob_match(&self.host, quena_query::host_without_port(host)))
+            && (self.url.is_empty() || req.url.to_lowercase().contains(&self.url.to_lowercase()))
+            && (self.method.is_empty() || req.method.eq_ignore_ascii_case(&self.method))
+            && self.status.is_none_or(|status| resp.is_some_and(|r| r.status == status))
+    }
+}
+
+fn normalize_breakpoint_rules(rules: &mut [BreakpointRule]) -> Result<()> {
+    let mut ids = std::collections::HashSet::new();
+    for r in rules {
+        if r.id.is_empty() || !ids.insert(r.id.clone()) { anyhow::bail!("breakpoint rule IDs must be unique and nonempty"); }
+        r.name = r.name.trim().to_string();
+        r.host = r.host.trim().to_ascii_lowercase();
+        r.url = r.url.trim().to_string();
+        r.method = r.method.trim().to_ascii_uppercase();
+        r.client_ip = r.client_ip.trim().to_string();
+        if !r.method.is_empty() { http::Method::from_bytes(r.method.as_bytes()).map_err(|e| anyhow!("invalid breakpoint method: {e}"))?; }
+        if !r.client_ip.is_empty() { r.client_ip = r.client_ip.parse::<std::net::IpAddr>().map_err(|e| anyhow!("invalid breakpoint client IP: {e}"))?.to_canonical().to_string(); }
+        if r.host.chars().any(|c| c.is_whitespace() || "/#@".contains(c)) { anyhow::bail!("use a hostname such as api.example.com or *.example.com"); }
+        if r.status.is_some_and(|s| !(100..=599).contains(&s)) { anyhow::bail!("a response status must be between 100 and 599"); }
+        if r.phase == BreakpointPhase::Request && r.status.is_some() { anyhow::bail!("a response status requires a response breakpoint"); }
+    }
+    Ok(())
 }
 
 /// A variant sent from the prompt playground (it goes out as written).
@@ -714,6 +775,8 @@ impl BreakpointState {
         if let Some(l) = &self.llm {
             v.push(l.label());
         }
+        let rules = self.rules.iter().filter(|r| r.enabled).count();
+        if rules > 0 { v.push(format!("rules {rules}")); }
         v
     }
 }
@@ -848,6 +911,21 @@ impl Rules {
             Err(_) => AutoResponderState::default(),
         };
         let max = ar.rules.iter().map(|r| r.id).max().unwrap_or(0);
+        let bp_path = data_dir.join("breakpoints.json");
+        let bp_rules = match std::fs::read(&bp_path) {
+            Ok(bytes) => match serde_json::from_slice::<Vec<BreakpointRule>>(&bytes).map_err(anyhow::Error::from).and_then(|mut rules| {
+                normalize_breakpoint_rules(&mut rules)?;
+                Ok(rules)
+            }) {
+                Ok(rules) => rules,
+                Err(e) => {
+                    let aside = crate::keep_corrupt(&bp_path);
+                    tracing::warn!(target: "quena", "breakpoint rules unreadable ({e}); starting without rules, the old file was kept as {aside}");
+                    Vec::new()
+                }
+            },
+            Err(_) => Vec::new(),
+        };
         let r = Arc::new(Rules {
             core: RwLock::new(Weak::new()),
             ar: RwLock::new(AutoResponderState::default()),
@@ -855,7 +933,10 @@ impl Rules {
             edit: Mutex::new(()),
             packages: Mutex::new(()),
             next_rule: AtomicU64::new(max + 1),
-            bp: RwLock::new(BreakpointState { timeout_s: 0, ..Default::default() }),
+            bp: RwLock::new(BreakpointState {
+                rules: bp_rules,
+                ..Default::default()
+            }),
             paused: Mutex::new(HashMap::new()),
             break_response: Mutex::new(Default::default()),
             path,
@@ -1120,6 +1201,19 @@ impl Rules {
         f(&mut self.bp.write());
     }
 
+    /// Save only named rules; temporary command/global breakpoints remain independent.
+    pub fn set_breakpoint_rules(&self, mut rules: Vec<BreakpointRule>, only_rules: bool) -> Result<()> {
+        normalize_breakpoint_rules(&mut rules)?;
+        let mut state = self.bp.write();
+        let path = self.path.with_file_name("breakpoints.json");
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&tmp, serde_json::to_vec_pretty(&rules)?)?;
+        std::fs::rename(tmp, path)?;
+        if only_rules { *state = BreakpointState { rules, ..Default::default() }; }
+        else { state.rules = rules; }
+        Ok(())
+    }
+
     pub fn paused(&self) -> Vec<PausedInfo> {
         let mut v: Vec<PausedInfo> = self.paused.lock().values().map(|(_, i)| i.clone()).collect();
         v.sort_by_key(|p| p.id);
@@ -1153,6 +1247,7 @@ impl Rules {
         b.all_requests
             || b.request_url.as_ref().is_some_and(|u| head.url.to_lowercase().contains(u.as_str()))
             || b.method.as_ref().is_some_and(|m| head.method.eq_ignore_ascii_case(m))
+            || b.rules.iter().any(|r| r.matches(s, head, None))
     }
 
     /// An LLM breakpoint is set and `head` goes to an LLM API (its body is needed to decide).
@@ -1166,6 +1261,7 @@ impl Rules {
         }
         let b = self.bp.read();
         b.all_responses || b.response_url.as_ref().is_some_and(|u| req.url.to_lowercase().contains(u.as_str())) || b.status == Some(resp.status)
+            || b.rules.iter().any(|r| r.matches(s, req, Some(resp)))
     }
 
     fn find_rule(&self, head: &RequestHead, body: Option<&Body>) -> Option<(Rule, Rest)> {

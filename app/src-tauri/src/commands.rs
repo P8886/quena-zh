@@ -973,6 +973,12 @@ async fn bp_set(core: State<'_, Core>, state: BreakpointState) -> R<()> {
 }
 
 #[tauri::command]
+async fn bp_rules_set(core: State<'_, Core>, entries: Vec<quena_app_core::rules::BreakpointRule>, only_rules: bool) -> R<()> {
+    let core = core.inner().clone();
+    blocking(move || rules(&core)?.set_breakpoint_rules(entries, only_rules).map_err(e)).await
+}
+
+#[tauri::command]
 async fn bp_paused(core: State<'_, Core>) -> R<Vec<PausedInfo>> {
     Ok(rules(core.inner())?.paused())
 }
@@ -1542,6 +1548,7 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Syn
         mock_reset_sequences,
         bp_get,
         bp_set,
+        bp_rules_set,
         bp_paused,
         bp_resume,
         editable_body,

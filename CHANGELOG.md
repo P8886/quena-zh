@@ -14,6 +14,8 @@ contain breaking changes (settings, file formats, plugin API).
 - Advanced Replay defaults to parallel execution and remembers its choices across restarts.
   The concurrency limit is optional; without it, repeats are submitted without an extra
   replay limit. Explicit limits remain 1–100, and sequential replay is still available.
+- Saved visual breakpoint rules combine client IP, host, URL/path, method and response
+  status. Conditions within a rule are ANDed; enabled rules are alternatives.
 - F2 unlocks a finished HTTP session for editing in the inspector. Save and lock, save
   and replay, or discard its drafts. Saved changes are used by replay and SAZ export.
 - Replay progress groups requests by batch, with submitted/completed/failed counts,

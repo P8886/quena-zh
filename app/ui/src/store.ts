@@ -298,6 +298,7 @@ export type Dialog =
   | { kind: "compare"; a: string; b: string; titleA: string; titleB: string }
   | { kind: "prompt"; title: string; label: string; initial: string; secret?: boolean; resolve: (v: string | null) => void }
   | { kind: "replay"; ids: SessionId[] }
+  | { kind: "breakpoints"; session?: SessionId }
   | { kind: "replay-progress" }
   | { kind: "library" }
   | { kind: "confirm"; title: string; message: string; confirm: string; resolve: (ok: boolean) => void }

@@ -187,6 +187,21 @@ goes to the server, or after the response arrives and before it reaches the clie
 | Before LLM requests with conditions | `bpllm model=claude tool=mcp__jira__* tokens=50k` — model contains, offers the tool (`*` at the end: a prefix), at least that many input tokens (estimated); all given must hold; a bare word is the model; `bpllm` or `bpllm off` switches it off |
 | From a Mock Rule | action `*bpu` or `*bpafter` |
 
+**Breakpoint Rules…** in *Capture → Breakpoints* or the toolbar opens a visual rule editor.
+Each rule has a name, an enabled checkbox, a phase (before request / after response),
+and optional client IP, host, URL/path, method and response-status conditions. All filled
+conditions within one rule must match; any enabled rule can pause traffic. Client IP is
+an exact IPv4/IPv6 address without a port, host accepts `*` and `?` wildcards and an optional
+port, URL/path is a case-insensitive substring, and status applies only after responses.
+For example, combine the phone's IP, `*.example.com`, `/api/orders` and `POST` to pause only
+that phone's matching API calls. The session context menu's **Breakpoint for This Request…**
+prefills IP, host, path and method.
+
+Save rules to retain them after restarting. Global and command breakpoints work alongside
+these rules: the editor warns when they are also active, and offers a checkbox to disable
+them on save so only the named rules apply. The status-bar automatic-breakpoint cycle and
+*Off* affect automatic modes; disable saved rules using their checkboxes in this editor.
+
 A command without an argument (e.g. `bpu`) switches that breakpoint off; *Off* (`Shift F11`)
 switches off the breakpoints before requests, after responses and before LLM requests. While
 an LLM breakpoint is set, requests to LLM APIs are held until their body is complete (the

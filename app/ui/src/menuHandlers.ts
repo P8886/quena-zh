@@ -10,6 +10,8 @@ export async function handleMenu(id: string) {
   switch (id) {
     case "edit.unlock":
       return (await import("./sessionEdits")).toggleSessionEditor();
+    case "rules.bp-rules":
+      return set({ dialog: { kind: "breakpoints" } });
     case "view.replays":
       return set({ dialog: { kind: "replay-progress" } });
     case "file.capture":
