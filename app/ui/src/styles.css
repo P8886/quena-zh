@@ -1721,6 +1721,21 @@ pre {
   color: var(--row-red);
   font-weight: 600;
 }
+.sb-bp-toggle {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  font: inherit;
+  color: inherit;
+  flex-shrink: 0;
+}
+.sb-bp-toggle.sb-bp {
+  color: var(--row-red);
+  font-weight: 600;
+}
+.sb-bp-toggle.sb-warn {
+  color: #b36b00;
+}
 .sb-ar {
   color: var(--row-purple);
 }

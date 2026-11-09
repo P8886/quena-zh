@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { fmtBytes, fmtInt } from "../lib/format";
-import { set, useStore } from "../store";
+import { say, set, useStore } from "../store";
 import { showContextMenu } from "./ContextMenu";
 import { actions } from "../actions";
 import { fmtNum, plural, t } from "../i18n";
 import { breakpointText } from "../lib/breakpointText";
+import { cycleAuto, goAll } from "../breakpoints";
 
 const PROC_LABELS = {
   all: t("All processes"),
@@ -23,6 +24,7 @@ export function StatusBar() {
   const count = useStore((s) => s.status?.sessions ?? s.listCount);
   const filters = useStore((s) => s.filters);
   const [msgVisible, setMsgVisible] = useState(false);
+  const [bpBusy, setBpBusy] = useState(false);
 
   useEffect(() => {
     if (!message) return;
@@ -38,6 +40,10 @@ export function StatusBar() {
   const remaps = useStore((s) => (s.settings?.hostRemap?.enabled ? s.settings.hostRemap.entries.filter((e) => e.enabled).length : 0));
   const procMode = filters?.enabled ? filters.processMode : "all";
   const procLabel = PROC_LABELS[procMode];
+  const before = eng?.breakpoints.includes("before requests");
+  const after = eng?.breakpoints.includes("after responses");
+  const conditionalBps = eng?.breakpoints.filter((b) => b !== "before requests" && b !== "after responses") ?? [];
+  const hasBreakpoints = !!eng?.breakpoints.length;
 
   return (
     <div className="statusbar">
@@ -47,6 +53,24 @@ export function StatusBar() {
         {eng?.systemProxy && <span className="sb-tag">{t("system proxy")}</span>}
         {eng?.decrypting && <span className="sb-tag">{t("HTTPS decrypt")}</span>}
       </div>
+      <button
+        className={`sb-cell sb-click sb-bp-toggle ${before || after ? "sb-bp" : ""}`}
+        disabled={!eng || bpBusy}
+        title={t("Click to cycle: before requests → after responses → off. Only traffic sent through Quena can pause. Changing the mode does not resume paused sessions.")}
+        onClick={async () => {
+          setBpBusy(true);
+          try { await cycleAuto(); } catch (e) { say(String(e), "error"); } finally { setBpBusy(false); }
+        }}
+      >
+        {before && after ? t("Auto breakpoints: request + response") : before ? t("Auto breakpoints: before request") : after ? t("Auto breakpoints: before response") : t("Auto breakpoints: off")}
+      </button>
+      {hasBreakpoints && !eng?.capturing && <span className="sb-cell sb-warn">{t("Start capture to use breakpoints")}</span>}
+      {hasBreakpoints && !eng?.decrypting && (
+        <button className="sb-cell sb-click sb-bp-toggle sb-warn" onClick={() => set({ dialog: { kind: "https" } })}
+          title={t("HTTPS tunnels cannot hit HTTP breakpoints. Enable HTTPS decryption and trust the Quena certificate on the client, then reconnect. Excluded hosts still bypass decryption.")}>
+          {t("HTTPS not decrypted…")}
+        </button>
+      )}
       <div
         className="sb-cell sb-click"
         onClick={(e) =>
@@ -73,8 +97,13 @@ export function StatusBar() {
         {count !== total ? plural(count, "{shown} of {n} session", "{shown} of {n} sessions", { shown: fmtNum(total) }) : plural(total, "{n} session", "{n} sessions")}
         {status?.filterActive ? <span className="sb-tag">{t("filtered")}</span> : null}
       </div>
-      {!!eng?.breakpoints.length && <div className="sb-cell sb-bp">⏸ {eng.breakpoints.map(breakpointText).join(", ")}</div>}
-      {!!eng?.paused && <div className="sb-cell sb-bp">{t("{n} paused", { n: eng.paused })}</div>}
+      {!!conditionalBps.length && <div className="sb-cell sb-bp">⏸ {conditionalBps.map(breakpointText).join(", ")}</div>}
+      {!!eng?.paused && (
+        <button className="sb-cell sb-click sb-bp-toggle sb-bp" title={t("Resume all paused sessions")}
+          onClick={() => void goAll().catch((e) => say(String(e), "error"))}>
+          {t("{n} paused", { n: eng.paused })} · {t("Resume all")}
+        </button>
+      )}
       {eng?.autoresponder && <div className="sb-cell sb-ar">⚡ {t("Mock Rules")}</div>}
       {eng?.rewrite && (
         <div className="sb-cell sb-ar" title={t("Rewrite rules change real requests and responses (list in the Mock Rules tab)")}>

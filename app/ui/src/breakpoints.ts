@@ -1,5 +1,5 @@
-import { api } from "./api";
-import { say } from "./store";
+import { api, type BpState } from "./api";
+import { say, set } from "./store";
 import { plural, t } from "./i18n";
 
 export async function goAll() {
@@ -17,15 +17,30 @@ export async function toggleLlm() {
   say(t("Break before LLM requests: {state}", { state: b.llm ? t("on") : t("off") }));
 }
 
-export async function setAuto(mode: "before" | "after" | "off") {
-  const b = await api.bpGet();
-  if (mode === "off") {
-    b.allRequests = false;
-    b.allResponses = false;
-    b.llm = null;
-  } else if (mode === "before") b.allRequests = !b.allRequests;
-  else b.allResponses = !b.allResponses;
-  await api.bpSet(b);
-  const state = (on: boolean) => (on ? t("on") : t("off"));
-  say(mode === "off" ? t("Automatic breakpoints disabled") : mode === "before" ? t("Break before requests: {state}", { state: state(b.allRequests) }) : t("Break after responses: {state}", { state: state(b.allResponses) }));
+type AutoMode = "before" | "after" | "off";
+
+// Read and write together: fast clicks / menu shortcuts must not overwrite one another.
+let autoChange = Promise.resolve();
+function changeAuto(choose: (b: BpState) => AutoMode) {
+  const change = autoChange.then(async () => {
+    const b = await api.bpGet();
+    const mode = choose(b);
+    b.allRequests = mode === "before";
+    b.allResponses = mode === "after";
+    if (mode === "off") b.llm = null;
+    await api.bpSet(b);
+    set({ status: await api.status() });
+    say(mode === "off" ? t("Automatic breakpoints disabled") : mode === "before" ? t("Break before requests: {state}", { state: t("on") }) : t("Break after responses: {state}", { state: t("on") }));
+  });
+  autoChange = change.catch(() => {});
+  return change;
+}
+
+export function setAuto(mode: AutoMode) {
+  return changeAuto((b) => ((mode === "before" && b.allRequests) || (mode === "after" && b.allResponses)) ? "off" : mode);
+}
+
+/** Fiddler-style status button: off → before requests → after responses → off. */
+export function cycleAuto() {
+  return changeAuto((b) => b.allResponses ? "off" : b.allRequests ? "after" : "before");
 }

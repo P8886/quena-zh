@@ -9,8 +9,12 @@ contain breaking changes (settings, file formats, plugin API).
 
 ### Added
 - Simplified Chinese interface and native menus, with automatic selection on Chinese systems.
+- A permanent status-bar button cycles automatic breakpoints before requests, before
+  responses reach the client, and off; paused sessions can be resumed from the status bar.
 
 ### Fixed
+- Request and response automatic breakpoint menu modes are mutually exclusive. The status
+  bar explains when capture is stopped or HTTPS decryption is disabled.
 - Chinese terminology reviewed in its HTTP, proxy, replay, storage and agent contexts;
   executable command examples and protocol names remain unchanged.
 

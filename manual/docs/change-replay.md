@@ -172,6 +172,18 @@ conditions need it), and it applies before the agent cache answers. The status b
 active breakpoints and the number of paused sessions. How the LLM breakpoint helps with
 agents: [Break before LLM requests](optimize-agents.md#break-before-llm-requests).
 
+The bottom-left **Auto breakpoints** button cycles **before request → before response →
+off**. The menu and shortcuts select the same mutually exclusive modes; choosing the
+active mode again switches it off. URL, status and method conditions remain independent.
+Changing modes affects subsequent traffic and does not release sessions already paused;
+click **Resume all** or use a paused session's inspector to release them.
+
+Breakpoints only apply to HTTP traffic routed through Quena while capture is running.
+HTTPS also requires HTTPS decryption and a Quena certificate trusted by the client.
+An opaque CONNECT tunnel cannot hit an HTTP request or response breakpoint. The status
+bar links to HTTPS settings when decryption is disabled. Hosts excluded from decryption
+still pass through as tunnels.
+
 ### Working with a paused session
 
 Paused sessions are marked red in the list. Select one: the inspector shows a breakpoint
