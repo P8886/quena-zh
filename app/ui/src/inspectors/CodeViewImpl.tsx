@@ -1,6 +1,6 @@
 // CodeMirror 6 editor behind CodeView (loaded on first use, see CodeView.tsx).
 import { useEffect, useRef } from "react";
-import { EditorState, Compartment, type Extension } from "@codemirror/state";
+import { Annotation, EditorState, Compartment, Transaction, type Extension } from "@codemirror/state";
 import { EditorView, lineNumbers, highlightActiveLine, keymap, drawSelection } from "@codemirror/view";
 import { defaultHighlightStyle, syntaxHighlighting, bracketMatching, foldGutter, foldKeymap } from "@codemirror/language";
 import { searchKeymap, highlightSelectionMatches, search } from "@codemirror/search";
@@ -9,6 +9,9 @@ import { registerEditor } from "../lib/cmEditTarget";
 
 import type { Lang } from "./CodeView";
 import { t } from "../i18n";
+
+// Loading or refreshing a message must not turn its previous text into a new draft.
+const syncText = Annotation.define<boolean>();
 
 // CodeMirror's own texts (search panel, folding, go to line).
 const phrases = EditorState.phrases.of({
@@ -122,7 +125,7 @@ export function CodeView({
         theme,
         phrases,
         EditorView.updateListener.of((u) => {
-          if (u.docChanged && onChangeRef.current) onChangeRef.current(u.state.doc.toString());
+          if (u.transactions.some((tr) => tr.docChanged && !tr.annotation(syncText))) onChangeRef.current?.(u.state.doc.toString());
         }),
       ],
     });
@@ -139,7 +142,7 @@ export function CodeView({
     const v = view.current;
     if (!v) return;
     if (v.state.doc.toString() !== text) {
-      v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: text } });
+      v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: text }, annotations: [syncText.of(true), Transaction.addToHistory.of(false)] });
     }
   }, [text]);
 
