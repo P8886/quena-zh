@@ -175,3 +175,63 @@ fn http2_breakpoints_hold_on_existing_decrypted_connections() {
     }
     check_blocking(true, true);
 }
+
+#[test]
+fn enabling_decryption_replaces_existing_opaque_tunnels_before_breaking() {
+    let dir = tempfile::tempdir().unwrap();
+    let (port, requests) = origin(dir.path(), true);
+    let proxy_ca = quena_tls::CertAuthority::load_or_create(dir.path()).unwrap();
+    let origin_ca = quena_tls::CertAuthority::load_or_create(dir.path().join("origin-ca")).unwrap();
+    let bundle = dir.path().join("client-ca.pem");
+    std::fs::write(&bundle, format!("{}\n{}", proxy_ca.cert_pem(), origin_ca.cert_pem())).unwrap();
+    std::fs::write(
+        dir.path().join("settings.json"),
+        r#"{"proxy":{"port":0,"actAsSystemProxy":false,"captureOnStartup":false,"useSystemUpstream":false},"https":{"decrypt":false,"ignoreCertErrors":true}}"#,
+    )
+    .unwrap();
+    let core = AppCore::new(Paths::at(dir.path().to_path_buf()), quena_app_core::logbuf::LogBuffer::new(100)).unwrap();
+    let engine = quena_app_core::engine::ProxyEngine::new(&core).unwrap();
+    core.set_proxy_engine(engine.clone());
+    core.start_capture().unwrap();
+    let addr = engine.proxy.listen_addrs().into_iter().find(|a| a.is_ipv4()).unwrap();
+    // curl waits at least two seconds between transfers, then reuses its cached tunnel
+    // unless the proxy closed it when decryption was enabled.
+    let mut child = Command::new("curl")
+        .args([
+            "-sS",
+            "--no-buffer",
+            "--http1.1",
+            "--noproxy",
+            "",
+            "--rate",
+            "30/m",
+            "--max-time",
+            "15",
+            "--proxy",
+            &format!("http://{addr}"),
+            "--cacert",
+            bundle.to_str().unwrap(),
+            &format!("https://localhost:{port}/unencrypted"),
+            &format!("https://localhost:{port}/must-pause"),
+        ])
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    assert_eq!(requests.recv_timeout(Duration::from_secs(5)).unwrap(), "/unencrypted");
+    let mut first_body = [0; 12];
+    child.stdout.as_mut().unwrap().read_exact(&mut first_body).unwrap();
+    assert_eq!(&first_body, b"/unencrypted");
+    let rules = core.rules.clone().unwrap();
+    rules.set_breakpoints(BreakpointState { all_requests: true, ..Default::default() });
+    let mut settings = core.settings();
+    settings.https.decrypt = true;
+    core.update_settings(settings).unwrap();
+    let id = wait_pause(&rules, "request", "/must-pause");
+    assert!(matches!(requests.try_recv(), Err(mpsc::TryRecvError::Empty)), "old opaque tunnel bypassed the breakpoint");
+    assert!(core.capture().detail(id).unwrap().summary.has_flag(quena_model::flags::DECRYPTED));
+    assert_eq!(rules.go_all(), 1);
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "/must-pause");
+    core.shutdown();
+}

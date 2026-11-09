@@ -72,7 +72,7 @@ fn byte_body(shared: &Shared, n: u64) -> quena_body::Body {
     w.finish()
 }
 
-pub async fn raw<S>(shared: &Arc<Shared>, live: &Arc<LiveSession>, mut client: S, host: &str, port: u16)
+pub async fn raw<S>(shared: &Arc<Shared>, live: &Arc<LiveSession>, mut client: S, host: &str, port: u16, decrypt_changes: Option<tokio::sync::watch::Receiver<u64>>)
 where
     S: AsyncRead + AsyncWrite + Unpin + Send,
 {
@@ -110,9 +110,19 @@ where
     let mut client = Activity { inner: &mut client, last: last.clone() };
     let mut server = Activity { inner: &mut server, last: last.clone() };
     let mut idle = false;
+    let mut policy_changed = false;
     let mut closing = shared.closing.subscribe();
     let r = tokio::select! {
         _ = closing.changed() => Ok((0, 0)),
+        _ = async {
+            match decrypt_changes {
+                Some(mut changes) => { let _ = changes.changed().await; }
+                None => std::future::pending::<()>().await,
+            }
+        } => {
+            policy_changed = true;
+            Ok((0, 0))
+        },
         r = tokio::io::copy_bidirectional(&mut client, &mut server) => r,
         _ = idle_watch(last.clone(), IDLE_TIMEOUT) => {
             idle = true;
@@ -124,6 +134,8 @@ where
     live.update(|d| {
         if idle {
             d.error = Some(format!("closed after {} minutes without traffic", IDLE_TIMEOUT.as_secs() / 60));
+        } else if policy_changed {
+            d.error = Some("HTTPS decryption settings changed; reconnect to apply the new policy".into());
         }
         d.summary.state = SessionState::Done;
         d.timers.client_done_response = Some(now_us());

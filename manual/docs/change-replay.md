@@ -181,7 +181,9 @@ click **Resume all** or use a paused session's inspector to release them.
 Breakpoints only apply to HTTP traffic routed through Quena while capture is running.
 HTTPS also requires HTTPS decryption and a Quena certificate trusted by the client.
 An opaque CONNECT tunnel cannot hit an HTTP request or response breakpoint. The status
-bar links to HTTPS settings when decryption is disabled. Hosts excluded from decryption
+bar links to HTTPS settings when decryption is disabled. Changing the decryption policy
+closes existing opaque TLS tunnels so clients reconnect under the new policy; refresh
+the page if the client does not retry automatically. Hosts excluded from decryption
 still pass through as tunnels.
 
 ### Working with a paused session

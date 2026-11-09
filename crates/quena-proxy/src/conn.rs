@@ -375,7 +375,7 @@ async fn tunnel_or_intercept<S>(
         Err(_) if port != 443 => {
             live.set_response_body(tunnel_body(&shared, format!("This is a {label} to {target}.\nThe client did not speak first (server-first protocol); it is passed through.\n")));
             live.update(|_| {});
-            tunnel::raw(&shared, &live, io, &host, port).await;
+            tunnel::raw(&shared, &live, io, &host, port, None).await;
             return;
         }
         Err(_) => 0,
@@ -453,6 +453,8 @@ where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     let shared = ctx.shared.clone();
+    // Subscribe before reading the policy, including changes while upstream connects.
+    let decrypt_changes = shared.decrypt_changes.subscribe();
     let cfg = shared.cfg();
     let label = kind.label();
     let first = io.peek_first().unwrap_or(0);
@@ -472,7 +474,7 @@ where
         };
         live.set_response_body(tunnel_body(&shared, format!("This is a {label} to {target}.\n{why}\n")));
         live.update(|_| {});
-        tunnel::raw(&shared, &live, io, &host, port).await;
+        tunnel::raw(&shared, &live, io, &host, port, is_tls.then_some(decrypt_changes)).await;
     }
 }
 

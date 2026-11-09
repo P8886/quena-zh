@@ -281,6 +281,9 @@ pub struct Shared {
     /// Bumped by `Proxy::stop`: open client connections, tunnels and WebSockets finish
     /// what is in flight and close, so a stopped capture records nothing more.
     pub closing: tokio::sync::watch::Sender<u64>,
+    /// A TLS tunnel cannot switch from pass-through to interception mid-connection.
+    /// Policy changes close opaque TLS tunnels so clients reconnect with the new policy.
+    pub(crate) decrypt_changes: tokio::sync::watch::Sender<u64>,
 }
 
 impl Shared {
@@ -354,6 +357,7 @@ impl Proxy {
             conn_ids: std::sync::atomic::AtomicU64::new(conn_id_base()),
             conn_limit: Arc::new(tokio::sync::Semaphore::new(MAX_CLIENT_CONNECTIONS)),
             closing: tokio::sync::watch::channel(0).0,
+            decrypt_changes: tokio::sync::watch::channel(0).0,
         });
         Ok(Arc::new(Proxy { shared, rt, stop: RwLock::new(None), extra: parking_lot::Mutex::new(vec![]), extra_status: RwLock::new(vec![]) }))
     }
@@ -571,6 +575,7 @@ impl Proxy {
     pub fn reconfigure(&self, cfg: ProxyConfig) -> Result<(), ProxyError> {
         let old = self.shared.cfg();
         let restart = self.is_running() && (old.port != cfg.port || old.allow_remote != cfg.allow_remote);
+        let decrypt_changed = old.decrypt != cfg.decrypt || old.decrypt_scope != cfg.decrypt_scope || old.skip_decryption != cfg.skip_decryption;
         let cfg = Arc::new(cfg);
         *self.shared.cfg.write() = cfg.clone();
         let up = {
@@ -578,6 +583,9 @@ impl Proxy {
             Arc::new(Upstream::new(cfg, self.shared.tls_clients.clone()))
         };
         *self.shared.upstream.write() = up;
+        if decrypt_changed {
+            self.shared.decrypt_changes.send_modify(|g| *g += 1);
+        }
         if restart {
             self.stop();
             self.start()?;

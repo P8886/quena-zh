@@ -13,6 +13,9 @@ contain breaking changes (settings, file formats, plugin API).
   responses reach the client, and off; paused sessions can be resumed from the status bar.
 
 ### Fixed
+- Enabling HTTPS decryption (or changing its scope/exclusions) closes existing opaque
+  TLS tunnels so clients reconnect under the new policy; old tunnels no longer keep
+  bypassing HTTP breakpoints after decryption is enabled.
 - Request and response automatic breakpoint menu modes are mutually exclusive. The status
   bar explains when capture is stopped or HTTPS decryption is disabled.
 - Chinese terminology reviewed in its HTTP, proxy, replay, storage and agent contexts;
