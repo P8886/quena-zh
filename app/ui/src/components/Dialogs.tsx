@@ -1,12 +1,13 @@
 import { LibraryPanel } from "./LibraryPanel";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { api, type CacheAdvice, type CacheStatus, type LlmPricesInfo, type McpStatus, type Recoverable, type SchemaStatus, type Settings } from "../api";
+import { api, type CacheAdvice, type CacheStatus, type LlmPricesInfo, type Recoverable, type SchemaStatus, type Settings } from "../api";
 import { actions } from "../actions";
 import { fmtBytes, fmtDateTime, isMac, modKey, osNames } from "../lib/format";
 import { get, say, set, useStore, type Dialog } from "../store";
 import { FindDialog } from "./FindDialog";
 import { HttpsPanel } from "./HttpsDialog";
+import { McpOptions } from "./McpOptions";
 
 // Rarely used, heavy dialogs (diff editor, script editor, QR code…) load on first open.
 const TextWizard = lazy(() => import("./TextWizard").then((m) => ({ default: m.TextWizard })));
@@ -762,146 +763,6 @@ function ProtobufOptions({ s, up }: { s: Settings; up: (f: (x: Settings) => void
         </p>
       )}
     </fieldset>
-  );
-}
-
-function McpOptions({ s, up }: { s: Settings; up: (f: (x: Settings) => void) => void }) {
-  const [status, setStatus] = useState<McpStatus | null>(null);
-  useEffect(() => {
-    api.mcpStatus().then(setStatus, () => setStatus(null));
-  }, []);
-  const m = s.mcp ?? { enabled: false, port: 8867, access: "readOnly", token: "", includeSecrets: false, filesDir: "" };
-  const newToken = async () => {
-    const token = await api.mcpNewToken();
-    up((x) => (x.mcp = { ...m, ...x.mcp, token }));
-  };
-  const command = `claude mcp add --transport http quena http://127.0.0.1:${m.port}/mcp --header "Authorization: Bearer ${m.token}"`;
-  // Clients are set up from the saved settings: not while the dialog holds other ones.
-  const savedMcp = useStore((st) => st.settings?.mcp);
-  const unsaved = !savedMcp || savedMcp.enabled !== m.enabled || savedMcp.port !== m.port || savedMcp.token !== m.token;
-  return (
-    <>
-      <p className="muted small">{t("AI agents connect over the Model Context Protocol (MCP) to read sessions and, with full control, set rules and send requests. Only programs on this computer that know the token can connect.")}</p>
-      <label className="f-check">
-        <input
-          type="checkbox"
-          checked={m.enabled}
-          onChange={async (e) => {
-            const enabled = e.target.checked;
-            const token = enabled && !m.token ? await api.mcpNewToken() : m.token;
-            up((x) => (x.mcp = { ...m, enabled, token }));
-          }}
-        />{" "}
-        {t("Enable MCP server")}
-      </label>
-      <div className="f-row">
-        <span>{t("Port")}</span>
-        <input type="number" min={1} max={65535} value={m.port} onChange={(e) => up((x) => (x.mcp = { ...m, port: Number(e.target.value) }))} />
-      </div>
-      <div className="f-row">
-        <span>{t("Agents may")}</span>
-        <select value={m.access} onChange={(e) => up((x) => (x.mcp = { ...m, access: e.target.value as "readOnly" | "full" }))}>
-          <option value="readOnly">{t("…only read sessions, rules and statistics")}</option>
-          <option value="full">{t("…also change rules and breakpoints, capture and send requests")}</option>
-        </select>
-      </div>
-      <label className="f-check" title={t("Agents send what they read to their model provider. Off: Authorization, cookies, tokens and secret parameters and fields are replaced first.")}>
-        <input type="checkbox" checked={m.includeSecrets} onChange={(e) => up((x) => (x.mcp = { ...m, includeSecrets: e.target.checked }))} /> {t("Show credentials and tokens to agents unredacted (unsafe)")}
-      </label>
-      <div className="f-row">
-        <span>{t("Folder for agent files")}</span>
-        <input
-          className="mono"
-          placeholder={t("empty = mcp-files in the data folder")}
-          value={m.filesDir}
-          onChange={(e) => up((x) => (x.mcp = { ...m, filesDir: e.target.value }))}
-        />
-        <button
-          onClick={async () => {
-            const p = await openDialog({ directory: true, multiple: false });
-            if (typeof p === "string") up((x) => (x.mcp = { ...m, filesDir: p }));
-          }}
-        >
-          {t("Choose folder…")}
-        </button>
-      </div>
-      <p className="muted small">{t("Exports, .http collections and files served by mock rules: agents may only read and write files in this folder. Captured traffic is foreign content; an agent with full control could be misled by it, so grant full control only while you watch.")}</p>
-      <div className="f-row">
-        <span>{t("Token")}</span>
-        <input readOnly className="mono" value={m.token} />
-        <button onClick={() => navigator.clipboard.writeText(m.token)} disabled={!m.token}>
-          {t("Copy")}
-        </button>
-        <button onClick={newToken}>{t("New token")}</button>
-      </div>
-      {m.token && (
-        <div className="f-row">
-          <span>{t("Claude Code")}</span>
-          <input readOnly className="mono" value={command} />
-          <button onClick={() => navigator.clipboard.writeText(command)}>{t("Copy")}</button>
-        </div>
-      )}
-      {m.token && (
-        <div className="f-row">
-          <span>{t("Set up for")}</span>
-          <div className="f-inline">
-            {(
-              [
-                ["claudeCode", "Claude Code"],
-                ["vsCode", "VS Code"],
-                ["cursor", "Cursor"],
-                ["codex", "Codex"],
-              ] as const
-            ).map(([c, name]) => (
-              <button
-                key={c}
-                disabled={unsaved}
-                title={unsaved ? t("Click OK first: the server's settings are not saved yet") : t("Writes the Quena server with its token into the user configuration of {name} (a copy of the file is kept as .bak). Click OK first so the server runs with these settings.", { name })}
-                onClick={async () => {
-                  try {
-                    say(t("Added Quena: {where}", { where: await api.mcpSetupClient(c) }));
-                  } catch (e) {
-                    say(String(e), "error");
-                  }
-                }}
-              >
-                {name}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-      <div className="f-row">
-        <span>{t("Agent skill")}</span>
-        <div className="f-inline">
-          {(
-            [
-              ["claudeCode", "Claude Code"],
-              ["codex", "Codex"],
-            ] as const
-          ).map(([c, name]) => (
-            <button
-              key={c}
-              title={t("Installs a skill that tells the agent how to debug traffic with Quena's tools (failing and slow requests, diagnostics, LLM calls, mocks).")}
-              onClick={async () => {
-                try {
-                  say(t("Skill installed: {path}", { path: await api.mcpInstallSkill(c) }));
-                } catch (e) {
-                  say(String(e), "error");
-                }
-              }}
-            >
-              {name}
-            </button>
-          ))}
-        </div>
-      </div>
-      {status && (
-        <p className="muted small">
-          {status.running ? t("Running at {url}", { url: status.url ?? "" }) : status.error ? t("Not running: {error}", { error: status.error }) : t("Not running")}
-        </p>
-      )}
-    </>
   );
 }
 

@@ -1671,6 +1671,25 @@ pre {
   width: 100%;
   resize: vertical;
 }
+.mcp-client-setup {
+  margin-top: 12px;
+  gap: 8px;
+  min-width: 0;
+}
+.mcp-client-setup p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.mcp-setup-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.mcp-setup-preview textarea {
+  box-sizing: border-box;
+  white-space: pre;
+  overflow: auto;
+}
 
 /* status bar */
 .statusbar {

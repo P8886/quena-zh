@@ -22,6 +22,8 @@ contain breaking changes (settings, file formats, plugin API).
   peak concurrency, throughput and request durations; each batch can be stopped separately.
 
 ### Fixed
+- MCP client setup now shows and copies instructions for the selected client, remembers
+  the selection, and keeps setup and skill-installation results visible in the dialog.
 - F2 edits are no longer overwritten with the previous body when the editor refreshes
   after saving. Save and Replay keeps the edited request parameters.
 - Breakpoint drafts survive selection and inspector-tab changes. Resume All and the `g`

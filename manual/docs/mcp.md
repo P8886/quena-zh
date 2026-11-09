@@ -20,16 +20,21 @@ your agents (their tool calls to other MCP servers) is on
       on every call; without it the changing tools say *Needs full control* and refuse, so
       granting it later works without reconnecting the agent.
 3. Click *OK*. The tab then shows *Running at http://127.0.0.1:8867/mcp*.
-4. Copy the *Claude Code* line and run it in a terminal:
+4. Under **Set up for**, select *Claude Code*, *Codex*, *VS Code* or *Cursor*. Quena
+   remembers the selected client. The instructions change with the selection: a terminal
+   command for Claude Code, a TOML section for Codex, or JSON for VS Code and Cursor.
+   **Copy command** / **Copy configuration** copies the displayed content. Merge configuration
+   snippets into the named file, keeping its other entries. For example, Claude Code uses:
 
     ```sh
-    claude mcp add --transport http quena http://127.0.0.1:8867/mcp \
-      --header "Authorization: Bearer <token>"
+    claude mcp add --scope user --transport http quena http://127.0.0.1:8867/mcp \
+      --header 'Authorization: Bearer <token>'
     ```
 
-    Or click **Set up for** *Claude Code*, *VS Code*, *Cursor* or *Codex*: Quena adds itself
-    with the token to that program's user configuration and keeps a copy of the file
-    (`.bak`):
+    Or click **Set up &lt;client&gt;**: Quena adds itself with the token to that program's
+    user configuration and keeps a copy of the file (`.bak`). Save the server settings
+    with **OK** before using automatic setup. The result stays visible in the dialog;
+    after successful setup, reload the client's MCP servers or restart the client.
 
     | Client | What Quena changes |
     |---|---|
@@ -45,7 +50,8 @@ your agents (their tool calls to other MCP servers) is on
 5. Optional: **Agent skill** → *Claude Code* or *Codex* installs the skill
    `quena-traffic-debugging` (`~/.claude/skills/…/SKILL.md`, `~/.codex/skills/…/SKILL.md`). It
    tells the agent when to use Quena and how: which filters find failing or slow requests,
-   when to run the diagnostics, how to read LLM calls and mock endpoints.
+   when to run the diagnostics, how to read LLM calls and mock endpoints. Skill installation
+   is separate from connection setup; its result also appears in the dialog.
 
 The settings of the tab:
 

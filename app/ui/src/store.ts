@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { NetworkProfile } from "./lib/diagReport";
-import type { FilterSettings, GroupBy, JobInfo, LogEntry, ReplayBatchInfo, RwRule, SanitizedExport, SessionId, Settings, Sort, Status } from "./api";
+import type { FilterSettings, GroupBy, JobInfo, LogEntry, McpClient, ReplayBatchInfo, RwRule, SanitizedExport, SessionId, Settings, Sort, Status } from "./api";
 import { t } from "./i18n";
 import type { MessageEdits } from "./sessionEdits";
 
@@ -202,6 +202,8 @@ export interface Layout {
   timeline?: import("./lib/timelineScale").TlLayout;
   /** Last Advanced Replay choices; parallel execution has no limit unless opted in. */
   replay?: { count: number; sequential: boolean; limitParallel: boolean; parallel: number; unconditional: boolean };
+  /** Last client selected in MCP connection setup. */
+  mcpClient?: McpClient;
 }
 
 export interface DiagPrefs {

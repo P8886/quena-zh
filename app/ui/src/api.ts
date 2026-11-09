@@ -922,6 +922,8 @@ export interface RwState {
   disabledGroups: string[];
 }
 
+export type McpClient = "claudeCode" | "vsCode" | "cursor" | "codex";
+
 export interface McpSettings {
   enabled: boolean;
   port: number;
@@ -1497,7 +1499,7 @@ export const api = {
   importArchive: (path: string, password?: string) => invoke<number>("import_archive", { path, password: password ?? null }),
   importDropped: (id: string, name: string, password: string) => invoke<number>("import_dropped", { id, name, password }),
   autosaveNow: () => invoke<string | null>("autosave_now"),
-  mcpSetupClient: (client: "claudeCode" | "vsCode" | "cursor" | "codex") => invoke<string>("mcp_setup_client", { client }),
+  mcpSetupClient: (client: McpClient) => invoke<string>("mcp_setup_client", { client }),
   mcpInstallSkill: (target: "claudeCode" | "codex") => invoke<string>("mcp_install_skill", { target }),
   llmCacheStatus: () => invoke<CacheStatus>("llm_cache_status"),
   llmCacheAdvice: () => invoke<CacheAdvice[]>("llm_cache_advice"),
