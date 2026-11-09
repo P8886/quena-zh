@@ -1458,11 +1458,7 @@ impl Rules {
             return Some(w.finish());
         }
         let text = r.body_text.as_ref()?;
-        let (bytes, content_type) = quena_body::text::encode_edited(text, headers.get("content-type"), r.body_charset.as_deref());
-        if let Some(ct) = content_type {
-            headers.set("Content-Type", ct);
-        }
-        Some(cap.bodies.store_bytes(&bytes))
+        Some(crate::editing::text_body(&cap.bodies, text, r.body_charset.as_deref(), headers))
     }
 }
 

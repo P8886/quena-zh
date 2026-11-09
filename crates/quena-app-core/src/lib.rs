@@ -20,6 +20,7 @@ pub mod mcp_setup;
 pub mod mcp_tap;
 pub mod mcp_traffic;
 pub mod dto;
+pub mod editing;
 pub mod engine;
 pub mod find;
 pub mod grpc;

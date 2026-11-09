@@ -1,17 +1,16 @@
 // Tamper mode: shown while a session is paused at a breakpoint.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api, type Detail, type Part, type Resume } from "../api";
 import { CodeView, langFor } from "./CodeView";
-import { loadBody } from "../lib/bodytext";
 import { useCharsetOverride } from "./CharsetPicker";
 import { fmtBytes, latin1ToUtf8 } from "../lib/format";
 import { requestLine } from "../lib/http";
-import { say } from "../store";
+import { say, useStore } from "../store";
 import { showContextMenu } from "../components/ContextMenu";
 import { t } from "../i18n";
-
-const EDIT_LIMIT = 1 << 20;
+import { editingError } from "../lib/editingText";
+import { EMPTY_EDITS, messageEdit, messageKey, patchMessageEdits, type MessageEdits } from "../sessionEdits";
 
 export function pausedPart(d: Detail | null): Part | null {
   if (!d) return null;
@@ -29,15 +28,7 @@ function headText(d: Detail, part: Part): string {
 }
 
 /** Edit state shared between the editor and the action bar. */
-export interface TamperEdits {
-  head: string | null;
-  body: string | null;
-  file: string | null;
-  /** Charset the body text is shown in: an edited body is encoded in the declared charset,
-   * else in this one (the core switches to UTF-8 and says so in the Content-Type if the text
-   * does not fit). Unedited bodies are forwarded byte for byte. */
-  charset?: string | null;
-}
+export type TamperEdits = MessageEdits;
 
 export function TamperEditor({ detail, part, edits, setEdits }: { detail: Detail; part: Part; edits: TamperEdits; setEdits: (e: TamperEdits) => void }) {
   const info = part === "request" ? detail.requestBody : detail.responseBody;
@@ -45,46 +36,51 @@ export function TamperEditor({ detail, part, edits, setEdits }: { detail: Detail
   const [charset, setCharset] = useState<string | null>(null);
   const [override] = useCharsetOverride(detail.summary.id, part);
   const [loadErr, setLoadErr] = useState<string | null>(null);
-  const editable = info.len <= EDIT_LIMIT && (info.isText || info.len === 0) && !info.contentEncoding;
-  const initialHead = useRef(headText(detail, part));
+  const editable = info.isText || info.len === 0;
+  const initialHead = headText(detail, part);
   useEffect(() => {
-    initialHead.current = headText(detail, part);
+    let alive = true;
+    setBody(null);
     setLoadErr(null);
     if (editable && info.len)
-      loadBody(detail.summary.id, part, info, EDIT_LIMIT, "raw", override).then(
+      api.editableBody(detail.summary.id, part, override).then(
         (b) => {
+          if (!alive) return;
           setBody(b.text);
-          // Transcoded text (UTF-16) is shown from UTF-8; it goes back in the body's own charset.
-          setCharset(override ?? info.charset?.name ?? b.charset);
+          setCharset(b.charset);
         },
-        (e) => setLoadErr(String(e)),
+        (e) => alive && setLoadErr(editingError(e)),
       );
     else setBody("");
+    return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detail.summary.id, part, override]);
   return (
     <div className="tamper">
       <div className="tamper-label">{t("Headers (editable)")}</div>
       <div className="tamper-head">
-        <CodeView text={edits.head ?? initialHead.current} editable wrap onChange={(s) => setEdits({ ...edits, head: s })} />
+        <CodeView text={edits.head ?? initialHead} editable wrap onChange={(s) => setEdits({ ...edits, head: s })} />
       </div>
-      <div className="tamper-label">
-        {t("Body {size}", { size: fmtBytes(info.len) })}
-        <span className="tp-spacer" />
-        {edits.file ? (
-          <span className="muted">
-            {t("Replaced by {file}", { file: edits.file })} <button onClick={() => setEdits({ ...edits, file: null })}>{t("Undo")}</button>
-          </span>
-        ) : (
-          <button
-            onClick={async () => {
-              const p = await open({ multiple: false });
-              if (typeof p === "string") setEdits({ ...edits, file: p, body: null });
-            }}
-          >
-            {t("Replace with file…")}
-          </button>
-        )}
+      <div>
+        {info.contentEncoding && editable && <div className="tamper-note muted small">{t("Compressed body is decoded for editing. Edited text is sent without compression; headers are updated automatically.")}</div>}
+        <div className="tamper-label">
+          {t("Body {size}", { size: fmtBytes(info.len) })}
+          <span className="tp-spacer" />
+          {edits.file ? (
+            <span className="muted">
+              {t("Replaced by {file}", { file: edits.file })} <button onClick={() => setEdits({ ...edits, file: null })}>{t("Undo")}</button>
+            </span>
+          ) : (
+            <button
+              onClick={async () => {
+                const p = await open({ multiple: false });
+                if (typeof p === "string") setEdits({ ...edits, file: p, body: null });
+              }}
+            >
+              {t("Replace with file…")}
+            </button>
+          )}
+        </div>
       </div>
       <div className="tamper-body">
         {edits.file ? (
@@ -99,7 +95,7 @@ export function TamperEditor({ detail, part, edits, setEdits }: { detail: Detail
           )
         ) : (
           <div className="placeholder">
-            {t("The body ({size}) is too large or binary to edit inline. It is forwarded unchanged unless you replace it with a file.", { size: `${fmtBytes(info.len)}${info.contentEncoding ? `, ${info.contentEncoding}` : ""}` })}
+            {t("The body ({size}) is binary. Replace it with a file to change it.", { size: fmtBytes(info.len) })}
           </div>
         )}
       </div>
@@ -111,7 +107,7 @@ export function TamperBar({ detail, part, edits, onDone }: { detail: Detail; par
   const id = detail.summary.id;
   const resume = async (r: Resume) => {
     try {
-      await api.bpResume(id, { ...r, headText: r.headText ?? edits.head, bodyText: r.bodyText ?? edits.body, bodyCharset: r.bodyText != null ? null : edits.charset ?? null, bodyFile: r.bodyFile ?? edits.file });
+      await api.bpResume(id, { ...messageEdit(edits), ...r });
       onDone();
     } catch (e) {
       say(String(e), "error");
@@ -144,4 +140,9 @@ export function TamperBar({ detail, part, edits, onDone }: { detail: Detail; par
       <span className="muted small">{part === "request" ? t("Edits apply to the request. Content-Length is fixed automatically.") : t("Edits apply to the response. Content-Length is fixed automatically.")}</span>
     </div>
   );
+}
+
+export function useMessageEdits(id: number | undefined, part: Part): { edits: MessageEdits; setEdits: (e: MessageEdits) => void } {
+  const edits = useStore((s) => id == null ? EMPTY_EDITS : s.messageDrafts[messageKey(id, part)] ?? EMPTY_EDITS);
+  return { edits, setEdits: (e) => { if (id != null) patchMessageEdits(id, part, e); } };
 }

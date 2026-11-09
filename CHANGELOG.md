@@ -16,6 +16,11 @@ contain breaking changes (settings, file formats, plugin API).
   replay limit. Explicit limits remain 1–100, and sequential replay is still available.
 
 ### Fixed
+- Breakpoint drafts survive selection and inspector-tab changes. Resume All and the `g`
+  command apply those edits before releasing traffic.
+- gzip/br and other supported compressed text bodies can be decoded for editing (up to
+  8 MiB decoded). Edited text is sent uncompressed with corrected headers; untouched
+  bodies retain their original bytes. Incomplete, corrupt or truncated input is refused.
 - New breakpoint events preserve the selected sessions and the active inspector tab,
   instead of jumping to each newly paused request. An empty selection previews only
   the first pause, including when multiple requests pause concurrently.

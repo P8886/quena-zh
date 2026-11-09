@@ -1,5 +1,9 @@
 // Simplified Chinese translations. Preserve placeholders, commands and protocol names.
 export const components: Record<string, string> = {
+  "The body is incomplete or its recording was truncated. Replace it with a complete file to edit it.": "正文尚未接收完整或抓包时已被截断，请使用完整文件替换后再修改。",
+  "The decoded body exceeds 8 MiB. Replace it with a file to edit it.": "解压后的正文超过 8 MiB，请使用文件替换。",
+  "This Content-Encoding cannot be decoded for editing: {encoding}": "暂不支持解码此 Content-Encoding，无法直接编辑正文：{encoding}",
+  "The compressed body could not be decoded completely: {error}": "压缩正文无法完整解码：{error}",
   "Redo": "重做",
   "Navigator: groups or structure": "导航器：分组或结构",
   "Could not read the clipboard: {error}": "无法读取剪贴板：{error}",

@@ -983,6 +983,12 @@ async fn bp_resume(core: State<'_, Core>, id: SessionId, resume: Resume) -> R<()
 }
 
 #[tauri::command]
+async fn editable_body(core: State<'_, Core>, id: SessionId, part: Part, charset: Option<String>) -> R<quena_app_core::editing::EditableBody> {
+    let core = core.inner().clone();
+    blocking(move || core.editable_body(id, part, charset.as_deref()).map_err(e)).await
+}
+
+#[tauri::command]
 async fn bp_go(core: State<'_, Core>) -> R<usize> {
     Ok(rules(core.inner())?.go_all())
 }
@@ -1522,6 +1528,7 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Syn
         bp_set,
         bp_paused,
         bp_resume,
+        editable_body,
         bp_go,
         plugins_list,
         plugin_set_enabled,

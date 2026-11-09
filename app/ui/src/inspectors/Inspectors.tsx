@@ -10,7 +10,8 @@ import { HexView } from "./HexView";
 import { AuthView, CachingView, CookiesView, ImageView, JsonView, ParamsView, RawView, TransformerView, WebFormsView, WebViewPane, XmlView } from "./views";
 import { actions } from "../actions";
 import { patchSettings } from "../settingsActions";
-import { TamperBar, TamperEditor, pausedPart, type TamperEdits } from "./Tamper";
+import { TamperBar, TamperEditor, pausedPart, useMessageEdits, type TamperEdits } from "./Tamper";
+import { discardMessageEdits } from "../sessionEdits";
 import { SoapView, soapCandidate } from "./Soap";
 import { AtomView, atomCandidate } from "./Atom";
 import { WebSocketView } from "./WebSocketView";
@@ -114,11 +115,11 @@ function useDetail(): { detail: Detail | null; error: string | null } {
       },
       fresh ? 0 : 200,
     );
-    return () => window.clearTimeout(t);
+    return () => { window.clearTimeout(t); req.current++; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusId, gridNonce, live ? listVersion : 0]);
   // Never show another session's detail under a failed load.
-  if (focusId == null || (error && detail?.summary.id !== focusId)) return { detail: null, error: focusId == null ? null : error };
+  if (focusId == null || detail?.summary.id !== focusId) return { detail: null, error: focusId == null ? null : error };
   return { detail, error: null };
 }
 
@@ -280,7 +281,7 @@ function Pane({ detail, part, tamper }: { detail: Detail | null; part: Part; tam
   };
   let content: React.ReactNode = <div className="placeholder">{t("Select a session to inspect it.")}</div>;
   if (detail && tamper) {
-    content = <TamperEditor detail={detail} part={part} edits={tamper.edits} setEdits={tamper.setEdits} />;
+    content = <TamperEditor key={`${detail.summary.id}:${part}:${part === "request" ? detail.requestBody.bodyId : detail.responseBody.bodyId}`} detail={detail} part={part} edits={tamper.edits} setEdits={tamper.setEdits} />;
   } else if (detail) {
     const info = part === "request" ? detail.requestBody : detail.responseBody;
     switch (tab) {
@@ -492,14 +493,13 @@ export function Inspectors() {
     if (get().charsetOverrides.id !== shownId) set({ charsetOverrides: { id: shownId, map: {} } });
   }, [shownId]);
   const paused = pausedPart(detail);
-  const [edits, setEdits] = useState<TamperEdits>({ head: null, body: null, file: null });
-  const pausedKey = detail && paused ? `${detail.summary.id}:${paused}` : "";
-  useEffect(() => setEdits({ head: null, body: null, file: null }), [pausedKey]);
-  const tamper = { edits, setEdits };
+  const requestEdits = useMessageEdits(detail?.summary.id, "request");
+  const responseEdits = useMessageEdits(detail?.summary.id, "response");
+  const tamper = paused === "response" ? responseEdits : requestEdits;
   return (
     <div className="inspectors" ref={root}>
       {detail && paused ? (
-        <TamperBar detail={detail} part={paused} edits={edits} onDone={() => setEdits({ head: null, body: null, file: null })} />
+        <TamperBar detail={detail} part={paused} edits={tamper.edits} onDone={() => discardMessageEdits(detail.summary.id, paused)} />
       ) : detail ? (
         <SessionHeader detail={detail} />
       ) : error ? (
@@ -511,9 +511,9 @@ export function Inspectors() {
         className={`insp-split ${stacked ? "stacked" : "side"}`}
         style={stacked ? { gridTemplateRows: `minmax(90px, ${split * 100}%) 5px minmax(90px, 1fr)` } : { gridTemplateColumns: `minmax(260px, ${split * 100}%) 5px minmax(260px, 1fr)` }}
       >
-        <Pane detail={detail} part="request" tamper={paused === "request" ? tamper : undefined} />
+        <Pane detail={detail} part="request" tamper={paused === "request" ? requestEdits : undefined} />
         <Splitter vertical={stacked} min={stacked ? [110, 110] : [300, 300]} onDrag={(f) => set((s) => ({ layout: { ...s.layout, inspectorSplit: f } }))} />
-        <Pane detail={detail} part="response" tamper={paused === "response" ? tamper : undefined} />
+        <Pane detail={detail} part="response" tamper={paused === "response" ? responseEdits : undefined} />
       </div>
     </div>
   );

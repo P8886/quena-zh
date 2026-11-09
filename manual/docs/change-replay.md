@@ -194,6 +194,14 @@ replaced by a file. `Content-Length` is fixed automatically. An unchanged body i
 forwarded byte for byte; an edited one is encoded like in the Composer (declared charset,
 else the one it was shown in; UTF-8 with an adjusted `Content-Type` if it does not fit).
 
+Request and response drafts stay attached to their session when switching rows or tabs.
+**Resume all** and the command field's `g`/`go` apply those drafts before releasing traffic.
+Compressed text bodies (gzip, br, deflate and zstd) are decoded for editing, up to 8 MiB of
+decoded input. Text edits remove `Content-Encoding`, remove `Transfer-Encoding` and set
+the correct `Content-Length`; untouched bodies keep their original compressed bytes.
+Incomplete, truncated or corrupt bodies cannot be edited as text. Binary or larger bodies
+can be replaced with a complete file; file replacement uses its bytes as supplied.
+
 | Button | Effect |
 |---|---|
 | *Run to Completion* | Continue with your changes. |

@@ -1544,6 +1544,7 @@ export const api = {
   bpSet: (state: BpState) => invoke<void>("bp_set", { state }),
   bpPaused: () => invoke<{ id: SessionId; phase: string; url: string; since: number }[]>("bp_paused"),
   bpResume: (id: SessionId, resume: Resume) => invoke<void>("bp_resume", { id, resume }),
+  editableBody: (id: SessionId, part: Part, charset?: string | null) => invoke<{ text: string; charset: string }>("editable_body", { id, part, charset: charset ?? null }),
   bpGo: () => invoke<number>("bp_go"),
   pluginsList: () => invoke<PluginInfo[]>("plugins_list"),
   pluginSetEnabled: (id: string, enabled: boolean) => invoke<void>("plugin_set_enabled", { id, enabled }),

@@ -1,5 +1,9 @@
 // German translations: components.
 export const components: Record<string, string> = {
+  "The body is incomplete or its recording was truncated. Replace it with a complete file to edit it.": "Der Body ist unvollständig oder seine Aufzeichnung wurde gekürzt. Zum Bearbeiten durch eine vollständige Datei ersetzen.",
+  "The decoded body exceeds 8 MiB. Replace it with a file to edit it.": "Der dekodierte Body ist größer als 8 MiB. Zum Bearbeiten durch eine Datei ersetzen.",
+  "This Content-Encoding cannot be decoded for editing: {encoding}": "Dieses Content-Encoding kann zum Bearbeiten nicht dekodiert werden: {encoding}",
+  "The compressed body could not be decoded completely: {error}": "Der komprimierte Body konnte nicht vollständig dekodiert werden: {error}",
   Redo: "Wiederholen",
   "Navigator: groups or structure": "Navigator: Gruppen oder Struktur",
   "Could not read the clipboard: {error}": "Zwischenablage konnte nicht gelesen werden: {error}",

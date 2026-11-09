@@ -242,7 +242,7 @@ export const actions = {
 
   /** Remove every session, without asking. */
   async clearSessions() {
-    set({ selection: new Set(), focusId: null, focusIndex: null });
+    set({ selection: new Set(), focusId: null, focusIndex: null, messageDrafts: {} });
     rowCache.clear();
     await api.removeAll();
   },
@@ -361,6 +361,15 @@ export const actions = {
 
   // -------------------------------------------------------------- quickexec
   async quickexec(input: string): Promise<boolean> {
+    if (/^(g|go)(?:\s|$)/i.test(input.trim())) {
+      try {
+        await (await import("./breakpoints")).goAll();
+        return true;
+      } catch (e) {
+        say(String(e), "error");
+        return false;
+      }
+    }
     const r = await api.quickexec(input);
     if (r.error) {
       say(quickexecText(r.error), "error");

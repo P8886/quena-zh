@@ -1,10 +1,22 @@
 import { api, type BpState } from "./api";
-import { say, set } from "./store";
+import { get, say, set } from "./store";
+import { discardMessageEdits, messageEdit, messageKey } from "./sessionEdits";
 import { plural, t } from "./i18n";
 
 export async function goAll() {
+  // Apply drafts first; the generic Go command only knows how to continue unchanged.
+  const paused = Object.keys(get().messageDrafts).length ? await api.bpPaused() : [];
+  let edited = 0;
+  for (const p of paused) {
+    const part = p.phase === "response" ? "response" : "request";
+    const draft = get().messageDrafts[messageKey(p.id, part)];
+    if (!draft) continue;
+    await api.bpResume(p.id, { action: "continue", ...messageEdit(draft) });
+    discardMessageEdits(p.id, part);
+    edited++;
+  }
   const n = await api.bpGo();
-  say(plural(n, "Resumed {n} session", "Resumed {n} sessions"));
+  say(plural(n + edited, "Resumed {n} session", "Resumed {n} sessions"));
 }
 
 /** Break before every LLM request, or no longer (conditions: `bpllm` in the command field). */

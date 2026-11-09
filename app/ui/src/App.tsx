@@ -55,6 +55,7 @@ function useBoot() {
     );
     unlisten.push(
       on<Status>("status", (s) => {
+        if (get().status && get().status?.captureDir !== s.captureDir) set({ messageDrafts: {} });
         // Capture started on its background thread after launch.
         set(get().captureBusy === "starting" && s.engine.capturing ? { status: s, captureBusy: null } : { status: s });
       }),

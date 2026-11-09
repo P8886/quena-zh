@@ -2193,6 +2193,7 @@ pre {
   border-bottom: 1px solid var(--border);
   font-weight: 600;
 }
+.tamper-note { padding: 4px 6px; }
 .tamper-head,
 .tamper-body {
   min-height: 0;

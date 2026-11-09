@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { NetworkProfile } from "./lib/diagReport";
 import type { FilterSettings, GroupBy, JobInfo, LogEntry, RwRule, SanitizedExport, SessionId, Settings, Sort, Status } from "./api";
 import { t } from "./i18n";
+import type { MessageEdits } from "./sessionEdits";
 
 export type RightTab = "statistics" | "inspectors" | "autoresponder" | "composer" | "filters" | "log" | "timeline" | "diagnostics" | "agents";
 
@@ -349,6 +350,8 @@ export interface AppState {
   /** Charsets chosen by the user for the bodies of one session (`request`, `response`,
    * `response:part3` …); belongs to session `id` and is dropped with the next session. */
   charsetOverrides: { id: SessionId | null; map: Record<string, string> };
+  /** Unsent edits survive selection changes and switching inspector tabs. */
+  messageDrafts: Record<string, MessageEdits>;
 }
 
 export const useStore = create<AppState>(() => ({
@@ -381,6 +384,7 @@ export const useStore = create<AppState>(() => ({
   captureBusy: null,
   gridWidth: 0,
   charsetOverrides: { id: null, map: {} },
+  messageDrafts: {},
 }));
 
 export const set = useStore.setState;
