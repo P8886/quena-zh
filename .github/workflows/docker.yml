@@ -1,0 +1,69 @@
+name: Docker image (quena-cli)
+# Publishes ghcr.io/hkiam/quena-cli when a release is published (not for drafts), or by hand.
+# `latest` moves only with releases that are not prereleases.
+# Maintainers: a new GHCR package is private. Make it public once in the package settings
+# (github.com/users/hkiam/packages/container/quena-cli/settings → Change visibility), or
+# `docker pull` fails for everyone else.
+# The image carries an SBOM and a provenance attestation (BuildKit), besides the SBOM of
+# quena-cli in /opt/quena-cli/sbom.cdx.json:
+#   docker buildx imagetools inspect ghcr.io/hkiam/quena-cli:<version> --format '{{ json .SBOM }}'
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag (e.g. v0.2.0)
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Release archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          # true/false for a release event; empty for workflow_dispatch (then asked below).
+          PRERELEASE: ${{ github.event_name == 'release' && (github.event.release.prerelease && 'true' || 'false') || '' }}
+        run: |
+          TAG="v${TAG#v}"   # "0.2.0" or "v0.2.0"
+          if [ -z "$PRERELEASE" ]; then
+            PRERELEASE=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq .isPrerelease)
+          fi
+          mkdir ctx
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'quena-cli-*-linux-*.tar.gz' --dir ctx
+          for a in ctx/*.tar.gz; do tar -xzf "$a" -C ctx; done
+          # Docker's TARGETARCH names: amd64, arm64.
+          for d in ctx/quena-cli-*-linux-x64; do mv "$d" "${d%-x64}-amd64"; done
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/quena-cli"
+          {
+            echo "VERSION=${TAG#v}"
+            echo "TAGS<<EOF"
+            echo "$image:${TAG#v}"
+            [ "$PRERELEASE" = false ] && echo "$image:latest"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+          echo "prerelease: $PRERELEASE"
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: ctx
+          file: tools/docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          build-args: VERSION=${{ env.VERSION }}
+          push: true
+          tags: ${{ env.TAGS }}
+          sbom: true
+          provenance: mode=max

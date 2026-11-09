@@ -1,0 +1,115 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Quena",
+  "version": "0.2.1",
+  "identifier": "io.github.hkiam.quena",
+  "build": {
+    "beforeDevCommand": {
+      "script": "npm run dev",
+      "cwd": "../ui",
+      "wait": false
+    },
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": {
+      "script": "npm run build",
+      "cwd": "../ui"
+    },
+    "frontendDist": "../ui/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Quena",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 900,
+        "minHeight": 560,
+        "dragDropEnabled": false,
+        "zoomHotkeysEnabled": true,
+        "create": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' ipc: http://ipc.localhost; img-src 'self' quena: http://quena.localhost data: blob:; media-src 'self' quena: http://quena.localhost blob:; connect-src 'self' ipc: http://ipc.localhost quena: http://quena.localhost; style-src 'self' 'unsafe-inline'; frame-src 'self' quena: http://quena.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "app",
+      "dmg",
+      "nsis",
+      "msi"
+    ],
+    "category": "DeveloperTool",
+    "shortDescription": "HTTP(S) traffic workbench",
+    "longDescription": "Quena is an easy-to-use, fast HTTP(S) debugging proxy for macOS, Windows and Linux.",
+    "copyright": "© 2026 Maik Hofmann",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "12.0",
+      "signingIdentity": "-",
+      "entitlements": "entitlements.plist"
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": false
+      },
+      "wix": {
+        "language": [
+          "en-US",
+          "de-DE"
+        ]
+      }
+    },
+    "resources": {
+      "../../plugins/dist/fast-infoset": "plugins/fast-infoset",
+      "../../plugins/dist/auth-tokens": "plugins/auth-tokens",
+      "../../plugins/dist/jwt": "plugins/jwt",
+      "../../plugins/dist/graphql": "plugins/graphql",
+      "../../plugins/dist/webdiag": "plugins/webdiag"
+    },
+    "fileAssociations": [
+      {
+        "ext": [
+          "saz"
+        ],
+        "name": "SAZ Session Archive",
+        "description": "SAZ session archive",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": [
+          "har"
+        ],
+        "name": "HTTP Archive",
+        "description": "HTTP Archive",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": [
+          "pcap",
+          "pcapng"
+        ],
+        "name": "Packet Capture",
+        "description": "Packet capture (pcap, pcapng)",
+        "role": "Viewer",
+        "rank": "Alternate"
+      }
+    ]
+  }
+}

@@ -1,0 +1,43 @@
+[package]
+name = "quena-app"
+description = "Quena desktop application (Tauri shell)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "quena"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+quena-app-core.workspace = true
+quena-mcp.workspace = true
+quena-model.workspace = true
+quena-body.workspace = true
+quena-script.workspace = true
+quena-index.workspace = true
+quena-query.workspace = true
+quena-plugin-host.workspace = true
+quena-platform.workspace = true
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-clipboard-manager = "2"
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+percent-encoding = "2"
+sys-locale = "0.3"
+parking_lot.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+signal-hook = "0.3"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_LibraryLoader", "Win32_Graphics_Gdi"] }
+webview2-com = "0.39"
+windows-core = "0.62"

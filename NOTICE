@@ -1,0 +1,16 @@
+Quena
+Copyright 2026 Maik Hofmann and Quena contributors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Quena is an independent project and is not affiliated with, endorsed by, or
+connected to Progress Software Corporation. "Fiddler" is a trademark of its
+respective owner and is used only to describe familiarity and compatibility.
+
+Third-party components are used under their own permissive licenses
+(MIT, Apache-2.0, BSD, ISC, Zlib and similar). The full list, with versions and
+licenses, is the software bill of materials sbom.cdx.json (CycloneDX) that comes
+with every package; in the source code, Cargo.lock and app/ui/package-lock.json.
+
+The user interface icons are from Lucide (https://lucide.dev), ISC License,
+Copyright (c) Lucide Contributors.

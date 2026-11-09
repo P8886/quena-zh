@@ -1,0 +1,32 @@
+[package]
+name = "quena-cli"
+description = "Headless diagnostics of HAR/SAZ captures: reports, baselines and quality gates for CI"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "quena-cli"
+path = "src/main.rs"
+
+[dependencies]
+quena-app-core.workspace = true
+quena-tls.workspace = true
+quena-report.workspace = true
+quena-formats.workspace = true
+serde.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+dirs.workspace = true
+ctrlc = { version = "3", features = ["termination"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tempfile.workspace = true
+serde_json.workspace = true

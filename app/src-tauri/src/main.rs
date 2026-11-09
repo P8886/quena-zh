@@ -1,0 +1,379 @@
+// Quena desktop shell: binds quena-app-core to Tauri (commands, events,
+// `quena://` body protocol, native menu). No business logic lives here.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+mod commands;
+mod i18n;
+mod menu;
+mod protocol;
+
+use quena_app_core::{AppCore, EventSink, Paths};
+use std::sync::Arc;
+use tauri::{Emitter, Manager};
+
+struct TauriSink(tauri::AppHandle);
+
+impl EventSink for TauriSink {
+    fn emit(&self, event: &str, payload: serde_json::Value) {
+        if let Err(e) = self.0.emit(event, payload) {
+            tracing::debug!("emit {event}: {e}");
+        }
+    }
+}
+
+pub type Core = Arc<AppCore>;
+
+fn main() {
+    let log = quena_app_core::init_tracing();
+    let paths = Paths::default_paths();
+    // Without a writable data folder Quena cannot run (a portable copy on a read-only drive,
+    // a locked-down profile): say so instead of quitting silently.
+    if let Err(e) = check_writable(&paths.data) {
+        fatal(&cannot_write_text(&paths, &e));
+    }
+    // One instance per data directory: a second one would run crash recovery and restore
+    // (i.e. undo) the system proxy the running instance set.
+    let _instance = match lock_instance(&paths.data) {
+        Some(l) => l,
+        None => {
+            tracing::warn!(target: "quena", "Quena is already running with data in {}; exiting", paths.data.display());
+            let text = if german() {
+                format!("Quena läuft bereits (Datenordner {}).", paths.data.display())
+            } else {
+                format!("Quena is already running (data folder {}).", paths.data.display())
+            };
+            eprintln!("{text}");
+            show_message(&text, false);
+            return;
+        }
+    };
+    let core = AppCore::new(paths, log).unwrap_or_else(|e| fatal(&start_failed_text(&format!("{e:#}"))));
+    quena_app_core::engine::install_panic_hook(&core.paths.data);
+    let engine = quena_app_core::engine::ProxyEngine::new(&core).unwrap_or_else(|e| fatal(&start_failed_text(&format!("{e:#}"))));
+    core.set_proxy_engine(engine.clone());
+    tracing::info!(target: "quena", "Quena {} started, data in {}", env!("CARGO_PKG_VERSION"), core.paths.data.display());
+
+    install_signal_handlers(core.clone());
+    #[cfg(windows)]
+    watch_session_end(core.clone());
+    // Archives given on the command line (Windows/Linux file associations use argv).
+    let initial_files: Vec<String> = std::env::args_os().skip(1).filter_map(|a| archive_path(std::path::Path::new(&a))).collect();
+    let mcp = quena_mcp::McpService::new();
+    let exit_core = core.clone();
+    let exit_mcp = mcp.clone();
+    let proto_core = core.clone();
+    tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .manage(core.clone())
+        .manage(commands::OpenFiles(parking_lot::Mutex::new(initial_files)))
+        .manage(engine.clone())
+        .manage(mcp.clone())
+        .register_asynchronous_uri_scheme_protocol("quena", move |_ctx, request, responder| {
+            let core = proto_core.clone();
+            std::thread::spawn(move || responder.respond(protocol::handle(&core, request)));
+        })
+        .setup(move |app| {
+            let handle = app.handle().clone();
+            core.set_sink(Arc::new(TauriSink(handle.clone())));
+            core.start_ticker();
+            // MCP server for AI agents (off unless enabled in the settings).
+            mcp.apply(&core);
+            // Load the rules script if scripting was left enabled.
+            if core.settings().scripting_enabled {
+                if let Some(r) = core.rules.clone() {
+                    tauri::async_runtime::spawn(async move {
+                        if let Err(err) = r.set_script_enabled(true).await {
+                            tracing::error!(target: "quena", "rules script failed to load: {err}");
+                        }
+                    });
+                }
+            }
+            i18n::set(i18n::resolve(&i18n::saved_pref(&core.settings().ui)));
+            let m = menu::build(&handle)?;
+            app.set_menu(m)?;
+            app.on_menu_event(|app, ev| {
+                let _ = app.emit("menu", ev.id().0.clone());
+            });
+            // The main window is created here (not from the config) so that a portable
+            // installation keeps the web view's own data (cache, local storage) beside the
+            // app as well, instead of in the user profile.
+            let cfg = app.config().app.windows.iter().find(|w| w.label == "main").cloned().ok_or("no main window in tauri.conf.json")?;
+            let mut builder = tauri::WebviewWindowBuilder::from_config(&handle, &cfg)?;
+            if core.paths.is_portable() {
+                builder = builder.data_directory(core.paths.data.join("webview"));
+            }
+            let _w = builder.build()?;
+            #[cfg(windows)]
+            disable_browser_accelerators(&_w);
+            // Bundled plugins live in the app resources, or next to the executable in a
+            // portable folder; dev builds use plugins/dist.
+            let exe_dir = std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.to_path_buf()));
+            let bundled = app
+                .path()
+                .resource_dir()
+                .ok()
+                .map(|d| d.join("plugins"))
+                .filter(|d| d.exists())
+                .or_else(|| exe_dir.map(|d| d.join("plugins")).filter(|d| d.exists()))
+                .or_else(|| Some(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../plugins/dist")).filter(|d| d.exists()));
+            // Start capturing once the window is up: setting the system proxy (dozens of
+            // `networksetup` calls on a Mac with many network services) and loading a PAC
+            // file can take seconds, and the UI shows the progress through status events.
+            if core.settings().proxy.capture_on_startup {
+                let ccore = core.clone();
+                std::thread::Builder::new()
+                    .name("quena-capture-start".into())
+                    .spawn(move || {
+                        if let Err(e) = ccore.start_capture() {
+                            tracing::error!(target: "quena", "could not start capturing: {e}");
+                        }
+                    })
+                    .ok();
+            }
+            // Compiling plugins takes a moment on a cold cache: never make the window wait.
+            let pcore = core.clone();
+            std::thread::Builder::new()
+                .name("quena-plugins".into())
+                .spawn(move || {
+                    if let Err(e) = pcore.init_plugins(bundled) {
+                        tracing::error!(target: "quena", "plugin host: {e:#}");
+                    }
+                })
+                .ok();
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                if window.label() == "main" {
+                    let core: tauri::State<Core> = window.state();
+                    core.shutdown();
+                }
+            }
+        })
+        .invoke_handler(commands::handler())
+        .build(tauri::generate_context!())
+        .expect("error while building Quena")
+        .run(move |app, event| match event {
+            // Cmd+Q, dock "Quit", logout: always shut down cleanly (restores the system proxy).
+            tauri::RunEvent::Exit => {
+                exit_mcp.stop();
+                exit_core.shutdown();
+            }
+            // macOS delivers "Open With" / double-clicked archives as an event.
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Opened { urls } => {
+                let files: Vec<String> = urls.iter().filter_map(|u| u.to_file_path().ok()).filter_map(|p| archive_path(&p)).collect();
+                if !files.is_empty() {
+                    app.state::<commands::OpenFiles>().0.lock().extend(files);
+                    let _ = app.emit("open-files", ());
+                }
+            }
+            _ => {
+                let _ = app;
+            }
+        });
+}
+
+/// WebView2 handles browser shortcuts itself (Ctrl+F opens its page search, Ctrl+R/F5
+/// reload, Ctrl+P print) before the app sees them. Turn them off so Quena's own shortcuts
+/// work; editing keys (copy, paste, undo) are not affected. Release builds also lose the
+/// browser's context menu (Reload, Inspect …) and the developer tools: Quena shows its own
+/// menus, and the preview frame, whose right-clicks the page never sees, gets none.
+#[cfg(windows)]
+fn disable_browser_accelerators(w: &tauri::WebviewWindow) {
+    use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings3;
+    use windows_core::Interface;
+    let res = w.with_webview(|pw| {
+        let settings = unsafe { pw.controller().CoreWebView2().and_then(|wv| wv.Settings()) };
+        let settings = match settings {
+            Ok(s) => s,
+            Err(e) => return tracing::warn!(target: "quena", "WebView2 settings not available: {e}"),
+        };
+        if let Err(e) = unsafe { settings.cast::<ICoreWebView2Settings3>().and_then(|s3| s3.SetAreBrowserAcceleratorKeysEnabled(false)) } {
+            tracing::warn!(target: "quena", "could not disable WebView2 browser shortcuts: {e}");
+        }
+        if !cfg!(debug_assertions)
+            && let Err(e) = unsafe { settings.SetAreDefaultContextMenusEnabled(false).and_then(|_| settings.SetAreDevToolsEnabled(false)) }
+        {
+            tracing::warn!(target: "quena", "could not disable WebView2 context menus and developer tools: {e}");
+        }
+    });
+    if let Err(e) = res {
+        tracing::warn!(target: "quena", "webview not available: {e}");
+    }
+}
+
+/// Windows logoff / shutdown: GUI apps get `WM_QUERYENDSESSION`/`WM_ENDSESSION` and are then
+/// terminated, which may skip the normal exit path. Without a clean shutdown the user's
+/// proxy setting would keep pointing at Quena after the next login (no internet until
+/// Quena runs again). A hidden top-level window on its own thread receives these messages
+/// and runs the (idempotent) shutdown, which restores the system proxy.
+#[cfg(windows)]
+fn watch_session_end(core: Core) {
+    use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+    use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, RegisterClassW, TranslateMessage, MSG, WM_ENDSESSION, WM_QUERYENDSESSION, WNDCLASSW, WS_OVERLAPPED,
+    };
+    static CORE: std::sync::OnceLock<Core> = std::sync::OnceLock::new();
+    let _ = CORE.set(core);
+    unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+        match msg {
+            WM_QUERYENDSESSION => 1,
+            WM_ENDSESSION => {
+                if wparam != 0 {
+                    if let Some(c) = CORE.get() {
+                        tracing::info!(target: "quena", "Windows session ends; shutting down");
+                        c.shutdown();
+                    }
+                }
+                0
+            }
+            // SAFETY: default handling for every other message of our own window.
+            _ => unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
+        }
+    }
+    let spawned = std::thread::Builder::new().name("quena-session-end".into()).spawn(|| {
+        // SAFETY: plain Win32 window creation and message loop on this thread; the class
+        // name buffer outlives the window, and the window procedure only reads a static.
+        unsafe {
+            let class: Vec<u16> = "QuenaSessionEnd\0".encode_utf16().collect();
+            let instance = GetModuleHandleW(std::ptr::null());
+            let mut wc: WNDCLASSW = std::mem::zeroed();
+            wc.lpfnWndProc = Some(wndproc);
+            wc.hInstance = instance;
+            wc.lpszClassName = class.as_ptr();
+            if RegisterClassW(&wc) == 0 {
+                return;
+            }
+            // Never shown: hidden top-level windows still receive the session messages
+            // (message-only windows would not).
+            let hwnd = CreateWindowExW(0, class.as_ptr(), class.as_ptr(), WS_OVERLAPPED, 0, 0, 0, 0, std::ptr::null_mut(), std::ptr::null_mut(), instance, std::ptr::null());
+            if hwnd.is_null() {
+                return;
+            }
+            let mut msg: MSG = std::mem::zeroed();
+            while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+        }
+    });
+    if let Err(e) = spawned {
+        tracing::warn!(target: "quena", "session-end watcher not started: {e}");
+    }
+}
+
+/// A session archive or packet capture Quena can import, as an absolute path string.
+fn archive_path(p: &std::path::Path) -> Option<String> {
+    if quena_app_core::archive::importable(p) && p.is_file() {
+        Some(std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf()).to_string_lossy().into_owned())
+    } else {
+        None
+    }
+}
+
+/// Creates the data folder and writes a test file into it (one per process, so that two
+/// starts at once do not remove each other's file).
+fn check_writable(data: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(data)?;
+    let probe = data.join(format!(".write-test-{}", std::process::id()));
+    std::fs::write(&probe, b"quena")?;
+    let _ = std::fs::remove_file(&probe);
+    Ok(())
+}
+
+fn german() -> bool {
+    i18n::resolve("system") == "de"
+}
+
+fn cannot_write_text(paths: &Paths, e: &std::io::Error) -> String {
+    let dir = paths.data.display();
+    match (paths.is_portable(), german()) {
+        (true, true) => format!(
+            "Quena läuft als portable Version und speichert alle Daten (Einstellungen, Aufzeichnungen, Zertifikat) im Ordner neben der Anwendung:\n\n{dir}\n\nDort kann Quena nicht schreiben ({e}). Wahrscheinlich ist das Laufwerk schreibgeschützt.\n\nKopieren Sie den Quena-Ordner an einen beschreibbaren Ort, zum Beispiel auf die Festplatte, und starten Sie Quena dort. Alternativ legt die Umgebungsvariable QUENA_DATA_DIR einen anderen, beschreibbaren Datenordner fest."
+        ),
+        (true, false) => format!(
+            "Quena is running as a portable copy and keeps all its data (settings, captures, certificate) in the folder beside the application:\n\n{dir}\n\nQuena cannot write there ({e}). The drive is probably read-only.\n\nCopy the Quena folder to a writable place, such as the hard disk, and start Quena there. Alternatively, the environment variable QUENA_DATA_DIR sets another, writable data folder."
+        ),
+        (false, true) => format!("Quena kann seinen Datenordner nicht anlegen oder nicht darin schreiben:\n\n{dir}\n\n{e}"),
+        (false, false) => format!("Quena cannot create or write its data folder:\n\n{dir}\n\n{e}"),
+    }
+}
+
+fn start_failed_text(e: &str) -> String {
+    if german() { format!("Quena konnte nicht starten:\n\n{e}") } else { format!("Quena could not start:\n\n{e}") }
+}
+
+/// Startup failed before there is a window: log it, show it in a system dialog and quit.
+fn fatal(text: &str) -> ! {
+    tracing::error!(target: "quena", "{text}");
+    eprintln!("{text}");
+    show_message(text, true);
+    std::process::exit(1);
+}
+
+/// A message in a system dialog, for when Quena has no window (yet).
+#[cfg(windows)]
+fn show_message(text: &str, error: bool) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_ICONINFORMATION, MB_OK};
+    let wide = |s: &str| s.encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
+    let (text, title) = (wide(text), wide("Quena"));
+    // SAFETY: both buffers are NUL-terminated and outlive the (modal) call.
+    unsafe { MessageBoxW(std::ptr::null_mut(), text.as_ptr(), title.as_ptr(), MB_OK | if error { MB_ICONERROR } else { MB_ICONINFORMATION }) };
+}
+
+#[cfg(target_os = "macos")]
+fn show_message(text: &str, error: bool) {
+    let script = format!("display alert \"Quena\" message \"{}\"{}", text.replace('\\', "\\\\").replace('"', "\\\""), if error { " as critical" } else { "" });
+    let _ = std::process::Command::new("/usr/bin/osascript").args(["-e", &script]).status();
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn show_message(text: &str, error: bool) {
+    // Whichever dialog tool the desktop has; the text is on stderr and in the log anyway.
+    let kind = if error { "error" } else { "info" };
+    let tried = std::process::Command::new("zenity").args([&format!("--{kind}"), "--title=Quena", "--no-markup", &format!("--text={text}")]).status();
+    if tried.is_err() {
+        let kind = if error { "--error" } else { "--msgbox" };
+        let _ = std::process::Command::new("kdialog").args(["--title", "Quena", kind, text]).status();
+    }
+}
+
+/// Hold an exclusive lock on `<data>/instance.lock` for the life of the process (the OS
+/// releases it on exit or crash). `None` if another process holds it.
+fn lock_instance(data: &std::path::Path) -> Option<Option<std::fs::File>> {
+    let _ = std::fs::create_dir_all(data);
+    let f = match std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(data.join("instance.lock")) {
+        Ok(f) => f,
+        // Can't create the lock file (read-only location…): don't block startup.
+        Err(_) => return Some(None),
+    };
+    match f.try_lock() {
+        Ok(()) => Some(Some(f)),
+        Err(std::fs::TryLockError::WouldBlock) => None,
+        Err(_) => Some(None),
+    }
+}
+
+/// SIGTERM/SIGINT/SIGHUP (e.g. `kill`, system shutdown, dev-mode restarts): shut down
+/// cleanly so the system proxy is restored and the capture is not reported as crashed.
+#[cfg(unix)]
+fn install_signal_handlers(core: Core) {
+    use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
+    let Ok(mut signals) = signal_hook::iterator::Signals::new([SIGTERM, SIGINT, SIGHUP]) else { return };
+    std::thread::Builder::new()
+        .name("quena-signals".into())
+        .spawn(move || {
+            if let Some(sig) = signals.forever().next() {
+                tracing::info!(target: "quena", "signal {sig} received, shutting down");
+                core.shutdown();
+                std::process::exit(0);
+            }
+        })
+        .ok();
+}
+
+#[cfg(not(unix))]
+fn install_signal_handlers(_core: Core) {}

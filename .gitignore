@@ -1,0 +1,20 @@
+/target
+node_modules/
+dist/
+.DS_Store
+*.log
+/app/ui/.vite
+/app/src-tauri/gen
+
+# Local exports (e.g. "Save as PDF" of the docs)
+/*.pdf
+
+# Local tool configuration
+/.serena/
+
+# Private planning notes (kept locally, never published)
+/PLAN.md
+/traffic-workbench-plan.md
+
+# MkDocs output of the user manual (built locally)
+/manual/site/

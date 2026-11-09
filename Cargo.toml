@@ -1,0 +1,109 @@
+[workspace]
+resolver = "3"
+# Plugins are separate cargo projects built for wasm32-wasip2.
+exclude = ["plugins"]
+members = [
+    "crates/quena-model",
+    "crates/quena-body",
+    "crates/quena-jobs",
+    "crates/quena-query",
+    "crates/quena-index",
+    "crates/quena-store",
+    "crates/quena-app-core",
+    "crates/quena-tls",
+    "crates/quena-platform",
+    "crates/quena-proxy",
+    "crates/quena-formats",
+    "crates/quena-plugin-host",
+    "crates/quena-auth",
+    "crates/quena-script",
+    "crates/quena-report",
+    "crates/quena-cli",
+    "crates/quena-mcp",
+    "app/src-tauri",
+]
+
+[workspace.package]
+version = "0.2.1"
+edition = "2024"
+license = "Apache-2.0"
+authors = ["Maik Hofmann <maik.hofmann@gmail.com>"]
+repository = "https://github.com/hkiam/quena"
+rust-version = "1.95"
+
+[workspace.dependencies]
+quena-model = { path = "crates/quena-model" }
+quena-body = { path = "crates/quena-body" }
+quena-jobs = { path = "crates/quena-jobs" }
+quena-index = { path = "crates/quena-index" }
+quena-store = { path = "crates/quena-store" }
+quena-query = { path = "crates/quena-query" }
+quena-app-core = { path = "crates/quena-app-core" }
+quena-tls = { path = "crates/quena-tls" }
+quena-platform = { path = "crates/quena-platform" }
+quena-proxy = { path = "crates/quena-proxy" }
+quena-formats = { path = "crates/quena-formats" }
+quena-plugin-host = { path = "crates/quena-plugin-host" }
+quena-auth = { path = "crates/quena-auth" }
+quena-script = { path = "crates/quena-script" }
+quena-report = { path = "crates/quena-report" }
+quena-mcp = { path = "crates/quena-mcp" }
+
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+parking_lot = "0.12"
+crossbeam-channel = "0.5"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+tokio = { version = "1", features = ["full"] }
+bytes = "1"
+rand = "0.9"
+tempfile = "3"
+rusqlite = { version = "0.40", features = ["bundled"] }
+flate2 = "1"
+brotli = "8"
+zstd = "0.13"
+sha2 = "0.10"
+hex = "0.4"
+regex = "1"
+dirs = "6"
+time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"
+panic = "unwind"
+
+# Build scripts and proc-macros are not stripped: stripping their dylibs with the
+# Xcode 27 toolchain on macOS 27 yields unloadable libraries ("mis-aligned
+# LINKEDIT string pool", then E0463 can't find crate). The shipped binary is
+# still stripped by the profile above.
+[profile.release.build-override]
+strip = false
+
+# Optimized local builds without the release profile's whole-program
+# optimization: `lto` + `codegen-units = 1` push all monomorphized Tauri/serde
+# code of the app crate through LLVM on a single core (~15 min per change).
+# `npm exec --prefix app/ui -- tauri build -- --profile local`
+[profile.local]
+inherits = "release"
+lto = false
+codegen-units = 16
+incremental = true
+
+# CI builds of ordinary pushes (test installers): release optimizations without the
+# single-threaded whole-program pass, which dominated CI time. Release tags use `release`.
+[profile.ci]
+inherits = "release"
+lto = false
+codegen-units = 16
+
+[profile.ci.build-override]
+strip = false
+
+[profile.dev.package."*"]
+opt-level = 2
