@@ -316,7 +316,8 @@ on your machine. Details in the [manual](https://hkiam.github.io/quena/agents-ov
 - **Request collections** as `.http` files (JetBrains / VS Code format) with variables and
   environments: saved and run in the Composer, by AI agents and headless; HTTP/1.1, HTTP/2 or
   h2c chosen per request
-- Replay: again, unconditionally, *n* times, sequentially, with edit
+- Replay: again, unconditionally, *n* times, parallel (optional limit) or sequentially, with
+  edit
 - **JavaScript rules** with hot reload,
   custom menu commands and a custom column
 

@@ -19,8 +19,8 @@ pub struct ReplayOptions {
     pub breakpoint: bool,
     /// Run sequentially (one after the other) instead of in parallel.
     pub sequential: bool,
-    /// At most this many at a time (0: all at once for a single round, one at a time for
-    /// repeats; capped at [`MAX_PARALLEL`]).
+    /// Optional concurrency limit (0: no replay limit; a positive limit is capped at
+    /// [`MAX_PARALLEL`]). `sequential` takes precedence.
     pub parallel: u32,
 }
 
@@ -116,7 +116,7 @@ fn origin_of(url: &str) -> Option<(String, String, u16)> {
     Some((scheme, host, port))
 }
 
-/// Most repeats of one replay, and most requests in flight at once.
+/// Most repeats of one replay, and the largest explicitly selected concurrency limit.
 pub const MAX_REPEAT: u32 = 100_000;
 pub const MAX_PARALLEL: u32 = 100;
 
@@ -256,15 +256,15 @@ impl AppCore {
         }
         let n = jobs.len();
         let count = o.count.clamp(1, MAX_REPEAT);
+        if n == 0 { return Ok(0); }
+        let planned = n.checked_mul(count as usize).ok_or_else(|| anyhow!("too many replay requests"))?;
         let shared = engine.proxy.shared.clone();
         let at_once = if o.sequential {
-            1
+            Some(1)
         } else if o.parallel > 0 {
-            o.parallel.min(MAX_PARALLEL) as usize
-        } else if count > 1 {
-            1
+            Some(o.parallel.min(MAX_PARALLEL) as usize)
         } else {
-            n.clamp(1, MAX_PARALLEL as usize)
+            None
         };
         // Stop ends the replays running (requests in flight finish).
         let generation = self.replay_generation.load(std::sync::atomic::Ordering::SeqCst);
@@ -272,14 +272,20 @@ impl AppCore {
         let current = move || core.upgrade().is_some_and(|c| c.replay_generation.load(std::sync::atomic::Ordering::SeqCst) == generation);
         let rt = engine.proxy.runtime().handle().clone();
         rt.spawn(async move {
-            let slots = Arc::new(tokio::sync::Semaphore::new(at_once));
-            let mut handles = Vec::new();
+            let slots = at_once.map(|n| Arc::new(tokio::sync::Semaphore::new(n)));
+            let mut running = tokio::task::JoinSet::new();
+            let mut submitted = 0usize;
             'rounds: for _ in 0..count {
                 for (orig, head, body) in &jobs {
                     if !current() {
                         break 'rounds;
                     }
-                    let Ok(permit) = slots.clone().acquire_owned().await else { break 'rounds };
+                    let permit = if let Some(slots) = &slots {
+                        let Ok(permit) = slots.clone().acquire_owned().await else { break 'rounds };
+                        Some(permit)
+                    } else {
+                        None
+                    };
                     // Stopped while waiting for a free slot.
                     if !current() {
                         break 'rounds;
@@ -290,22 +296,24 @@ impl AppCore {
                         hooks: true,
                         force_h2: None,
                     };
-                    let f = quena_proxy::execute(shared.clone(), head.clone(), body.clone(), opts);
-                    handles.push(tokio::spawn(async move {
-                        f.await;
+                    let (shared, head, body) = (shared.clone(), head.clone(), body.clone());
+                    running.spawn(async move {
+                        quena_proxy::execute(shared, head, body, opts).await;
                         drop(permit);
-                    }));
-                    // Finished tasks need not be kept (100 000 repeats).
-                    if handles.len() > 4 * MAX_PARALLEL as usize {
-                        handles.retain(|h| !h.is_finished());
+                    });
+                    // Reap completions without scanning every task still in flight.
+                    while running.try_join_next().is_some() {}
+                    submitted += 1;
+                    if submitted % 64 == 0 {
+                        // Unrestricted submission must yield too, so Stop stays responsive.
+                        tokio::task::yield_now().await;
                     }
                 }
             }
-            for h in handles {
-                let _ = h.await;
-            }
+            // Stopping submission still lets requests already in flight finish.
+            while running.join_next().await.is_some() {}
         });
-        Ok(n * count as usize)
+        Ok(planned)
     }
 
     /// Stop the running replays (requests in flight finish).

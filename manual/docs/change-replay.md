@@ -8,7 +8,7 @@ Select one or more sessions and replay their requests:
 |---|---|---|
 | *Replay Requests* | `R` | Send the requests again. |
 | *Replay Unconditionally* | `U` | Send them again without conditional headers (`If-Modified-Since`, `If-None-Match`, `If-Match`, `If-Unmodified-Since`, `If-Range`), so the server sends a full response. |
-| *Advanced Replay…* | `Shift R` | Send the requests up to 100,000 times each, one after the other or in parallel with at most 1–100 at a time, optionally unconditionally. *Stop* in the message or *Stop Replay* ends the running replays, also those an agent started (requests on the way finish). |
+| *Advanced Replay…* | `Shift R` | Send the requests up to 100,000 times each. Defaults to parallel execution without an extra replay concurrency limit; optionally select *At most* 1–100 requests at a time, or run one after the other. The dialog remembers its choices, including after restarting Quena. *Stop* in the message or *Stop Replay* ends submission, also for replays an agent started (requests on the way finish). |
 | *Replay and Edit* | | Send the request with a breakpoint, so you can change it before it goes out. |
 | *Replay from Composer* | | Load the request into the Composer. |
 

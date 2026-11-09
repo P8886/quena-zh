@@ -11,6 +11,9 @@ contain breaking changes (settings, file formats, plugin API).
 - Simplified Chinese interface and native menus, with automatic selection on Chinese systems.
 - A permanent status-bar button cycles automatic breakpoints before requests, before
   responses reach the client, and off; paused sessions can be resumed from the status bar.
+- Advanced Replay defaults to parallel execution and remembers its choices across restarts.
+  The concurrency limit is optional; without it, repeats are submitted without an extra
+  replay limit. Explicit limits remain 1–100, and sequential replay is still available.
 
 ### Fixed
 - New breakpoint events preserve the selected sessions and the active inspector tab,

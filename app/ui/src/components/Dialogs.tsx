@@ -82,17 +82,23 @@ function PromptDialog({ title, label, initial, secret, resolve }: { title: strin
   );
 }
 
-/** Advanced replay: how often, one after the other or N at a time. */
+/** Advanced replay: remember the choices, with an optional concurrency limit. */
 function ReplayDialog({ ids }: { ids: number[] }) {
-  const [count, setCount] = useState("10");
-  const [mode, setMode] = useState<"sequential" | "parallel">("sequential");
-  const [parallel, setParallel] = useState("5");
-  const [unconditional, setUnconditional] = useState(false);
+  const saved = get().layout.replay;
+  const [count, setCount] = useState(String(saved?.count ?? 10));
+  const [sequential, setSequential] = useState(saved?.sequential ?? false);
+  const [limitParallel, setLimitParallel] = useState(saved?.limitParallel ?? false);
+  const [parallel, setParallel] = useState(String(saved?.parallel ?? 5));
+  const [unconditional, setUnconditional] = useState(saved?.unconditional ?? false);
   const n = Math.max(1, Math.min(100000, Math.floor(Number(count)) || 1));
   const p = Math.max(1, Math.min(100, Math.floor(Number(parallel)) || 1));
+  useEffect(() => {
+    set((s) => ({ layout: { ...s.layout, replay: { count: n, sequential, limitParallel, parallel: p, unconditional } } }));
+    actions.saveLayout();
+  }, [n, sequential, limitParallel, p, unconditional]);
   const go = () => {
     close();
-    void import("../replay").then((m) => m.startReplay(ids, { count: n, unconditional, sequential: mode === "sequential", parallel: mode === "parallel" ? p : 0 }));
+    void import("../replay").then((m) => m.startReplay(ids, { count: n, unconditional, sequential, parallel: !sequential && limitParallel ? p : 0 }));
   };
   return (
     <Modal
@@ -113,12 +119,17 @@ function ReplayDialog({ ids }: { ids: number[] }) {
         <input autoFocus type="number" min={1} max={100000} value={count} onChange={(e) => setCount(e.target.value)} onKeyDown={(e) => e.key === "Enter" && go()} />
       </div>
       <label className="f-check">
-        <input type="radio" checked={mode === "sequential"} onChange={() => setMode("sequential")} /> {t("One after the other")}
+        <input type="radio" name="replay-mode" checked={sequential} onChange={() => setSequential(true)} /> {t("One after the other")}
       </label>
       <label className="f-check">
-        <input type="radio" checked={mode === "parallel"} onChange={() => setMode("parallel")} /> {t("In parallel, at most")}{" "}
-        <input type="number" className="num-small" min={1} max={100} value={parallel} onChange={(e) => setParallel(e.target.value)} disabled={mode !== "parallel"} /> {t("at a time")}
+        <input type="radio" name="replay-mode" checked={!sequential} onChange={() => setSequential(false)} /> {t("In parallel")}
       </label>
+      <div className="f-check replay-limit">
+        <label className="f-check">
+          <input type="checkbox" checked={limitParallel} onChange={(e) => setLimitParallel(e.target.checked)} disabled={sequential} /> {t("At most")}
+        </label>
+        <input type="number" className="num-small" aria-label={t("Maximum concurrent requests")} min={1} max={100} value={parallel} onChange={(e) => setParallel(e.target.value)} disabled={sequential || !limitParallel} /> {t("at a time")}
+      </div>
       <label className="f-check">
         <input type="checkbox" checked={unconditional} onChange={(e) => setUnconditional(e.target.checked)} /> {t("Unconditionally (without If-None-Match / If-Modified-Since)")}
       </label>

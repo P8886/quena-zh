@@ -321,8 +321,8 @@ static TOOLS: &[Tool] = &[
                     "ids": { "type": "array", "items": { "type": "integer" } },
                     "count": { "type": "integer", "description": "Times each (default 1)" },
                     "unconditional": { "type": "boolean", "description": "Remove If-None-Match / If-Modified-Since …" },
-                    "sequential": { "type": "boolean" },
-                    "parallel": { "type": "integer", "description": "At most this many at a time (1-100)" }
+                    "sequential": { "type": "boolean", "description": "Wait for each request to finish (default false)" },
+                    "parallel": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Optional concurrency limit (1-100); 0 or omitted means no replay limit" }
                 }),
                 &["ids"],
             )

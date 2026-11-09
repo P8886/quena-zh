@@ -3961,6 +3961,9 @@ pre.llm-text.mono {
 .num-small {
   width: 4.5em;
 }
+.replay-limit {
+  margin-left: 22px;
+}
 .autosave {
   margin: 4px 0;
 }

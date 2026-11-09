@@ -61,7 +61,7 @@ These work while the session list has the focus.
 | Unmark | `Ctrl/⌘ 0` |
 | Replay | `R` |
 | Replay unconditionally | `U` |
-| Replay sequentially (n times) | `Shift R` |
+| Advanced Replay (parallel or sequential, n times) | `Shift R` |
 | Focus the command field | `/` |
 
 ## Command field

@@ -199,6 +199,8 @@ export interface Layout {
   diag?: DiagPrefs;
   /** Timeline columns: order of the visible ones and their widths. */
   timeline?: import("./lib/timelineScale").TlLayout;
+  /** Last Advanced Replay choices; parallel execution has no limit unless opted in. */
+  replay?: { count: number; sequential: boolean; limitParallel: boolean; parallel: number; unconditional: boolean };
 }
 
 export interface DiagPrefs {

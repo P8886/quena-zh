@@ -169,7 +169,7 @@ like the bodies.
 | Tool | Full control | What it does |
 |---|---|---|
 | `send_request` | ✓ | send a request through Quena and return the session |
-| `replay_sessions` | ✓ | send captured requests again (`count`, one after the other or `parallel` 1–100 at a time) |
+| `replay_sessions` | ✓ | send captured requests again (`count`); parallel by default, `sequential: true` runs one after the other; `parallel` 1–100 optionally limits concurrency, 0 or omitted adds no replay limit |
 | `list_http_requests` | | the requests of a [`.http` file](change-replay.md#request-collections-http-files), resolved for an environment |
 | `run_http_file` | ✓ | send a `.http` collection (or some of its requests) through Quena |
 | `list_collections` | | the Composer's collections; `collection:NAME` as `path` above names one |
