@@ -80,6 +80,21 @@ export const actions = {
     if (pos != null) grid.scrollToIndex(pos, "center");
   },
 
+  /** Preview the first breakpoint only; incoming traffic must not replace a selection. */
+  async revealBreakpoint(id: SessionId) {
+    const s = get();
+    if (s.focusId != null || s.selection.size) return;
+    // Claim the empty selection before awaiting: a burst of breakpoint events must
+    // not all see it as empty and then race to replace the first paused session.
+    const selection = new Set([id]);
+    set({ selection, focusId: id, focusIndex: null, anchorIndex: null });
+    const pos = await api.positionOf(id);
+    // A manual selection or clear while the lookup ran takes precedence.
+    if (get().selection !== selection || get().focusId !== id) return;
+    set({ focusIndex: pos, anchorIndex: pos });
+    if (pos != null) grid.scrollToIndex(pos, "center");
+  },
+
   async selectAll() {
     const total = get().listTotal;
     const ids = await api.viewIds(0, total);

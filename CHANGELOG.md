@@ -13,6 +13,9 @@ contain breaking changes (settings, file formats, plugin API).
   responses reach the client, and off; paused sessions can be resumed from the status bar.
 
 ### Fixed
+- New breakpoint events preserve the selected sessions and the active inspector tab,
+  instead of jumping to each newly paused request. An empty selection previews only
+  the first pause, including when multiple requests pause concurrently.
 - Enabling HTTPS decryption (or changing its scope/exclusions) closes existing opaque
   TLS tunnels so clients reconnect under the new policy; old tunnels no longer keep
   bypassing HTTP breakpoints after decryption is enabled.

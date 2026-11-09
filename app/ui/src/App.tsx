@@ -81,9 +81,8 @@ function useBoot() {
     unlisten.push(on<CaptureImport>("pcap-import", captureImported));
     unlisten.push(
       on<{ id: number; phase: string; url: string }>("breakpoint", (b) => {
-        // Jump to the paused session.
-        actions.selectIds([b.id]);
-        actions.showTab("inspectors");
+        // Keep the session/tab the user is inspecting, including unsent breakpoint edits.
+        void actions.revealBreakpoint(b.id).catch((e) => say(String(e), "error"));
       }),
     );
     (async () => {
