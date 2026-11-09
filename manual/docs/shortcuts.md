@@ -62,6 +62,7 @@ These work while the session list has the focus.
 | Replay | `R` |
 | Replay unconditionally | `U` |
 | Advanced Replay (parallel or sequential, n times) | `Shift R` |
+| Unlock a finished HTTP session / save and lock its edits | `F2` |
 | Focus the command field | `/` |
 
 ## Command field

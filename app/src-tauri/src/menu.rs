@@ -105,6 +105,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
             &PredefinedMenuItem::copy(app, None)?,
             &PredefinedMenuItem::paste(app, None)?,
             &PredefinedMenuItem::select_all(app, None)?,
+            &item(app, "edit.unlock", "Unlock and Edit", Some("F2"))?,
             &sep()?,
             &Submenu::with_items(
                 app,

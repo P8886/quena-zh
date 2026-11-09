@@ -306,6 +306,7 @@ on your machine. Details in the [manual](https://hkiam.github.io/quena/agents-ov
   with a redaction log
 - **Breakpoints & tamper** before request / after response, with drafts that survive selection
   changes and support for gzip/br text editing
+- **F2 edit** finished HTTP sessions in the inspector, then save, replay or export the edits
 - **Rewrite rules**: change real responses and requests by JSONPath, regex, header, status —
   with an editor and preview, groups, and applied to captured sessions as changed copies
 - **Compare captures**: two captures (live or archives) side by side — new, gone and

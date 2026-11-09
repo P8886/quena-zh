@@ -8,6 +8,8 @@ import { t } from "./i18n";
 export async function handleMenu(id: string) {
   if (id.startsWith("edit.mark-")) return actions.mark(id.slice(10) as MarkColor);
   switch (id) {
+    case "edit.unlock":
+      return (await import("./sessionEdits")).toggleSessionEditor();
     case "file.capture":
       return actions.toggleCapture();
     case "file.recover":

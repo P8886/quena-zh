@@ -23,6 +23,7 @@ const COMMANDS: Cmd[] = [
   { id: "rules.bp-before", label: t("Break before requests"), group: t("Capture"), keys: "F11" },
   { id: "rules.bp-after", label: t("Break after responses"), group: t("Capture"), keys: "Alt F11" },
   { id: "rules.bp-off", label: t("Breakpoints off"), group: t("Capture"), keys: "Shift F11" },
+  { id: "edit.unlock", label: t("Unlock and Edit"), group: t("Sessions"), keys: "F2" },
   { id: "tools.https", label: t("HTTPS settings"), group: t("Capture") },
   { id: "tools.connect-device", label: t("Connect a device"), group: t("Capture") },
   { id: "tools.reverse-proxy", label: t("Reverse proxy (fixed port → target)"), group: t("Capture") },

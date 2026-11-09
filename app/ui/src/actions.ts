@@ -242,7 +242,7 @@ export const actions = {
 
   /** Remove every session, without asking. */
   async clearSessions() {
-    set({ selection: new Set(), focusId: null, focusIndex: null, messageDrafts: {} });
+    set({ selection: new Set(), focusId: null, focusIndex: null, messageDrafts: {}, unlockedSessions: new Set() });
     rowCache.clear();
     await api.removeAll();
   },
@@ -397,6 +397,10 @@ export const actions = {
       return !!g;
     }
     switch (k) {
+      case "F2":
+        if (isTauri) return false; // The native menu dispatches its accelerator.
+        void import("./sessionEdits").then((m) => m.toggleSessionEditor());
+        return true;
       case "ArrowDown":
         actions.moveFocus(1, e.shiftKey);
         return true;

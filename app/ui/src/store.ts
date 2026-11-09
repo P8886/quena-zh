@@ -352,6 +352,7 @@ export interface AppState {
   charsetOverrides: { id: SessionId | null; map: Record<string, string> };
   /** Unsent edits survive selection changes and switching inspector tabs. */
   messageDrafts: Record<string, MessageEdits>;
+  unlockedSessions: Set<SessionId>;
 }
 
 export const useStore = create<AppState>(() => ({
@@ -385,6 +386,7 @@ export const useStore = create<AppState>(() => ({
   gridWidth: 0,
   charsetOverrides: { id: null, map: {} },
   messageDrafts: {},
+  unlockedSessions: new Set(),
 }));
 
 export const set = useStore.setState;

@@ -10,7 +10,7 @@ import { HexView } from "./HexView";
 import { AuthView, CachingView, CookiesView, ImageView, JsonView, ParamsView, RawView, TransformerView, WebFormsView, WebViewPane, XmlView } from "./views";
 import { actions } from "../actions";
 import { patchSettings } from "../settingsActions";
-import { TamperBar, TamperEditor, pausedPart, useMessageEdits, type TamperEdits } from "./Tamper";
+import { SessionEditBar, TamperBar, TamperEditor, pausedPart, useMessageEdits, type TamperEdits } from "./Tamper";
 import { discardMessageEdits } from "../sessionEdits";
 import { SoapView, soapCandidate } from "./Soap";
 import { AtomView, atomCandidate } from "./Atom";
@@ -493,6 +493,7 @@ export function Inspectors() {
     if (get().charsetOverrides.id !== shownId) set({ charsetOverrides: { id: shownId, map: {} } });
   }, [shownId]);
   const paused = pausedPart(detail);
+  const unlocked = useStore((s) => detail != null && s.unlockedSessions.has(detail.summary.id));
   const requestEdits = useMessageEdits(detail?.summary.id, "request");
   const responseEdits = useMessageEdits(detail?.summary.id, "response");
   const tamper = paused === "response" ? responseEdits : requestEdits;
@@ -500,6 +501,8 @@ export function Inspectors() {
     <div className="inspectors" ref={root}>
       {detail && paused ? (
         <TamperBar detail={detail} part={paused} edits={tamper.edits} onDone={() => discardMessageEdits(detail.summary.id, paused)} />
+      ) : detail && unlocked ? (
+        <SessionEditBar key={detail.summary.id} detail={detail} />
       ) : detail ? (
         <SessionHeader detail={detail} />
       ) : error ? (
@@ -511,9 +514,9 @@ export function Inspectors() {
         className={`insp-split ${stacked ? "stacked" : "side"}`}
         style={stacked ? { gridTemplateRows: `minmax(90px, ${split * 100}%) 5px minmax(90px, 1fr)` } : { gridTemplateColumns: `minmax(260px, ${split * 100}%) 5px minmax(260px, 1fr)` }}
       >
-        <Pane detail={detail} part="request" tamper={paused === "request" ? requestEdits : undefined} />
+        <Pane detail={detail} part="request" tamper={paused === "request" || unlocked ? requestEdits : undefined} />
         <Splitter vertical={stacked} min={stacked ? [110, 110] : [300, 300]} onDrag={(f) => set((s) => ({ layout: { ...s.layout, inspectorSplit: f } }))} />
-        <Pane detail={detail} part="response" tamper={paused === "response" ? responseEdits : undefined} />
+        <Pane detail={detail} part="response" tamper={paused === "response" || (unlocked && !!detail?.response) ? responseEdits : undefined} />
       </div>
     </div>
   );

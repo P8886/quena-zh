@@ -1464,7 +1464,7 @@ impl Rules {
 
 /// Copy a file into a new body. Read errors (and a capture store without room, which would
 /// cut the body short) are errors, so no truncated response is served as complete.
-fn copy_to_body(store: &Arc<quena_body::BodyStore>, mut src: impl std::io::Read) -> std::result::Result<Body, String> {
+pub(crate) fn copy_to_body(store: &Arc<quena_body::BodyStore>, mut src: impl std::io::Read) -> std::result::Result<Body, String> {
     let mut w = store.writer_with_limit(u64::MAX);
     let mut buf = vec![0u8; 1 << 20];
     loop {

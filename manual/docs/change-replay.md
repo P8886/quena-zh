@@ -15,6 +15,19 @@ Select one or more sessions and replay their requests:
 The commands are in the context menu (*Replay*) and behind the **Replay** button in the
 toolbar. Replayed sessions appear as new sessions. Tunnels cannot be replayed.
 
+### Edit a recorded session (`F2`)
+
+Select one finished HTTP session and press **F2**, or choose **Unlock and Edit** from its
+context menu. Both the request and response can be edited in the inspector. **Save and
+Lock** (or F2 again) saves the changes; **Save and Replay** saves before sending the request
+again. **Discard Edits** returns to the saved version. Replay commands, including Shift+R,
+also save an unlocked session's drafts before replaying. Saved changes are used by SAZ
+export too. Active requests and CONNECT tunnels cannot be unlocked this way; use the
+breakpoint editor for paused traffic.
+
+Drafts stay with their session while switching selection or inspector tabs. They are kept
+in memory for the current capture; save before closing the app or switching captures.
+
 ## Composer
 
 The **Composer** (`F9`, *Tools → Composer*) builds a request from scratch or from a

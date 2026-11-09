@@ -10,7 +10,7 @@ import { say, useStore } from "../store";
 import { showContextMenu } from "../components/ContextMenu";
 import { t } from "../i18n";
 import { editingError } from "../lib/editingText";
-import { EMPTY_EDITS, messageEdit, messageKey, patchMessageEdits, type MessageEdits } from "../sessionEdits";
+import { discardMessageEdits, EMPTY_EDITS, lockSession, messageEdit, messageKey, patchMessageEdits, saveSessionEdits, type MessageEdits } from "../sessionEdits";
 
 export function pausedPart(d: Detail | null): Part | null {
   if (!d) return null;
@@ -140,6 +140,38 @@ export function TamperBar({ detail, part, edits, onDone }: { detail: Detail; par
       <span className="muted small">{part === "request" ? t("Edits apply to the request. Content-Length is fixed automatically.") : t("Edits apply to the response. Content-Length is fixed automatically.")}</span>
     </div>
   );
+}
+
+/** Historical sessions use the same editor, and save before issuing another request. */
+export function SessionEditBar({ detail }: { detail: Detail }) {
+  const [busy, setBusy] = useState(false);
+  const id = detail.summary.id;
+  const save = async (replay: boolean) => {
+    setBusy(true);
+    try {
+      if (!await saveSessionEdits(id)) {
+        say(t("New edits were made while saving. They remain open for review."));
+        return;
+      }
+      lockSession(id);
+      if (replay) await (await import("../replay")).startReplay([id], { count: 1 });
+      else say(t("Session edits saved."));
+    } catch (e) {
+      say(editingError(e), "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return <div className="tamper-bar">
+    <span className="tamper-title">{t("Unlocked for editing")}</span>
+    <button className="primary" disabled={busy} onClick={() => void save(true)}>{t("Save and Replay")}</button>
+    <button disabled={busy} onClick={() => void save(false)}>{t("Save and Lock")}</button>
+    <button disabled={busy} onClick={() => {
+      discardMessageEdits(id, "request");
+      discardMessageEdits(id, "response");
+      lockSession(id);
+    }}>{t("Discard Edits")}</button>
+  </div>;
 }
 
 export function useMessageEdits(id: number | undefined, part: Part): { edits: MessageEdits; setEdits: (e: MessageEdits) => void } {

@@ -2,6 +2,8 @@ import { api } from "./api";
 import { get, say, set } from "./store";
 import { actions } from "./actions";
 import { plural, t } from "./i18n";
+import { saveSessionEdits } from "./sessionEdits";
+import { editingError } from "./lib/editingText";
 
 export interface ReplayOptions {
   unconditional?: boolean;
@@ -22,12 +24,16 @@ export async function replaySelected(o: ReplayOptions) {
 /** Start a replay; repeats can be stopped from the message. */
 export async function startReplay(ids: number[], o: { unconditional?: boolean; count: number; breakpoint?: boolean; sequential?: boolean; parallel?: number }) {
   try {
+    for (const id of ids) if (get().unlockedSessions.has(id) && !await saveSessionEdits(id)) {
+      say(t("New edits were made while saving. They remain open for review."));
+      return;
+    }
     const n = await api.replay(ids, o);
     const text = n ? plural(n, "Replaying {n} request", "Replaying {n} requests") : t("Nothing to replay (tunnels cannot be replayed)");
     if (n > 1 && o.count > 1) say(text, "info", { label: t("Stop"), run: () => void stopReplay() });
     else say(text);
   } catch (e) {
-    say(String(e), "error");
+    say(editingError(e), "error");
   }
 }
 

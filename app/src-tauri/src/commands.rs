@@ -989,6 +989,12 @@ async fn editable_body(core: State<'_, Core>, id: SessionId, part: Part, charset
 }
 
 #[tauri::command]
+async fn edit_session(core: State<'_, Core>, id: SessionId, edit: quena_app_core::editing::SessionEdit) -> R<()> {
+    let core = core.inner().clone();
+    blocking(move || core.edit_session(id, edit).map_err(e)).await
+}
+
+#[tauri::command]
 async fn bp_go(core: State<'_, Core>) -> R<usize> {
     Ok(rules(core.inner())?.go_all())
 }
@@ -1529,6 +1535,7 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Syn
         bp_paused,
         bp_resume,
         editable_body,
+        edit_session,
         bp_go,
         plugins_list,
         plugin_set_enabled,
