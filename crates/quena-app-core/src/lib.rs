@@ -41,6 +41,7 @@ pub mod plugins;
 pub mod protobuf;
 pub mod rewrite;
 pub mod rules;
+pub mod replay_progress;
 pub mod sanitize;
 pub mod settings;
 pub mod socketio;
@@ -201,8 +202,9 @@ pub struct AppCore {
     pub(crate) llm_prices: Mutex<Option<((Option<(Option<std::time::SystemTime>, u64)>, Option<(Option<std::time::SystemTime>, u64)>), Arc<llm::PriceList>)>>,
     /// Archives loaded into the list: (file name, capture numbering, session ids).
     pub(crate) imports: Mutex<Vec<(String, u64, Vec<SessionId>)>>,
-    /// The running replay (a newer one or Stop ends it).
+    /// Generation incremented by Stop to end submission for all running replays.
     pub(crate) replay_generation: std::sync::atomic::AtomicU64,
+    pub(crate) replay_batches: Mutex<Vec<Arc<replay_progress::ReplayBatch>>>,
     started: Instant,
     shut_down: std::sync::atomic::AtomicBool,
     /// Serializes starting and stopping the capture (the startup thread and the UI can race).
@@ -253,6 +255,7 @@ impl AppCore {
             llm_prices: Mutex::new(None),
             imports: Mutex::new(Vec::new()),
             replay_generation: std::sync::atomic::AtomicU64::new(0),
+            replay_batches: Mutex::new(Vec::new()),
             started: Instant::now(),
             shut_down: std::sync::atomic::AtomicBool::new(false),
         });
@@ -394,6 +397,7 @@ impl AppCore {
                 let mut last_jobs_gen = u64::MAX;
                 let mut last_jobs = Instant::now();
                 let mut last_status: Option<StatusDto> = None;
+                let mut last_replays = Vec::new();
                 let mut last_status_t = Instant::now() - Duration::from_secs(1);
                 let mut last_log = 0u64;
                 let mut last_trim = Instant::now();
@@ -419,6 +423,11 @@ impl AppCore {
                         if last_status.as_ref() != Some(&st) {
                             core.emit("status", &st);
                             last_status = Some(st);
+                        }
+                        let replays = core.replay_batches();
+                        if last_replays != replays {
+                            core.emit("replays", &replays);
+                            last_replays = replays;
                         }
                     }
                     let seq = core.log.last_seq();

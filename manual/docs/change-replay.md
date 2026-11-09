@@ -15,6 +15,15 @@ Select one or more sessions and replay their requests:
 The commands are in the context menu (*Replay*) and behind the **Replay** button in the
 toolbar. Replayed sessions appear as new sessions. Tunnels cannot be replayed.
 
+**Replay Progress…** (toolbar Replay menu, *View*, or the replay count in the status bar)
+shows each batch separately: planned, submitted, in flight, completed, failed and peak
+concurrency, elapsed time, throughput and mean/min/max request durations. Completed
+includes failed requests; a network error or HTTP status of 400 or above counts as failure.
+In-flight and peak counts include requests waiting for a connection or breakpoint, and
+durations include those waits. **Stop This Batch** ends submission for that batch; requests
+already submitted continue. Finished statistics remain available during the current run
+(the latest 20 finished/active batches, with active batches always retained).
+
 ### Edit a recorded session (`F2`)
 
 Select one finished HTTP session and press **F2**, or choose **Unlock and Edit** from its

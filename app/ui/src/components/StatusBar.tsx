@@ -19,6 +19,7 @@ export function StatusBar() {
   const status = useStore((s) => s.status);
   const message = useStore((s) => s.message);
   const jobs = useStore((s) => s.jobs);
+  const replay = useStore((s) => s.replayBatches.find((b) => !b.submissionDone || b.running > 0) ?? s.replayBatches[0]);
   const selection = useStore((s) => s.selection);
   const total = useStore((s) => s.listTotal);
   const count = useStore((s) => s.status?.sessions ?? s.listCount);
@@ -98,6 +99,9 @@ export function StatusBar() {
         {status?.filterActive ? <span className="sb-tag">{t("filtered")}</span> : null}
       </div>
       {!!conditionalBps.length && <div className="sb-cell sb-bp">⏸ {conditionalBps.map(breakpointText).join(", ")}</div>}
+      {replay && <button className="sb-cell sb-click sb-bp-toggle" onClick={() => set({ dialog: { kind: "replay-progress" } })} title={t("Replay Progress…")}>
+        {t("Replay: {done}/{total}", { done: fmtInt(replay.completed), total: fmtInt(replay.planned) })}
+      </button>}
       {!!eng?.paused && (
         <button className="sb-cell sb-click sb-bp-toggle sb-bp" title={t("Resume all paused sessions")}
           onClick={() => void goAll().catch((e) => say(String(e), "error"))}>

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { api, isTauri, on, type CaptureImport, type JobInfo, type LogEntry, type Status } from "./api";
+import { api, isTauri, on, type CaptureImport, type JobInfo, type LogEntry, type ReplayBatchInfo, type Status } from "./api";
 import { captureImported } from "./fileActions";
 import { baseName } from "./lib/importFormats";
 import { prepareImport } from "./lib/importPrep";
@@ -61,6 +61,7 @@ function useBoot() {
       }),
     );
     unlisten.push(on<JobInfo[]>("jobs", (j) => set({ jobs: j })));
+    unlisten.push(on<ReplayBatchInfo[]>("replays", (replayBatches) => set({ replayBatches })));
     unlisten.push(
       on<LogEntry[]>("log", (entries) => {
         const log = [...get().log, ...entries];
@@ -92,6 +93,7 @@ function useBoot() {
       const layout = restoreLayout(ui.layout);
       const status = await api.status();
       set({ settings, layout, filters: await api.getFilters(), status, log: await api.logSince(0) });
+      void api.replayBatches().then((replayBatches) => set({ replayBatches })).catch((e) => say(String(e), "error"));
       if (layout.groupBy && layout.groupBy !== "none") await api.setGroup(layout.groupBy).catch(() => {});
       // Capture starts in the background after launch: show that instead of "Paused".
       if (settings.proxy.captureOnStartup && !status.engine.capturing) {

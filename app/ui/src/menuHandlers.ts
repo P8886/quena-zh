@@ -10,6 +10,8 @@ export async function handleMenu(id: string) {
   switch (id) {
     case "edit.unlock":
       return (await import("./sessionEdits")).toggleSessionEditor();
+    case "view.replays":
+      return set({ dialog: { kind: "replay-progress" } });
     case "file.capture":
       return actions.toggleCapture();
     case "file.recover":

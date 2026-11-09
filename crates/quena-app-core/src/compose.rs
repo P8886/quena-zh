@@ -258,6 +258,7 @@ impl AppCore {
         let count = o.count.clamp(1, MAX_REPEAT);
         if n == 0 { return Ok(0); }
         let planned = n.checked_mul(count as usize).ok_or_else(|| anyhow!("too many replay requests"))?;
+        let batch = self.new_replay_batch(planned);
         let shared = engine.proxy.shared.clone();
         let at_once = if o.sequential {
             Some(1)
@@ -269,7 +270,8 @@ impl AppCore {
         // Stop ends the replays running (requests in flight finish).
         let generation = self.replay_generation.load(std::sync::atomic::Ordering::SeqCst);
         let core = Arc::downgrade(self);
-        let current = move || core.upgrade().is_some_and(|c| c.replay_generation.load(std::sync::atomic::Ordering::SeqCst) == generation);
+        let batch_check = batch.clone();
+        let current = move || !batch_check.stopped() && core.upgrade().is_some_and(|c| c.replay_generation.load(std::sync::atomic::Ordering::SeqCst) == generation);
         let rt = engine.proxy.runtime().handle().clone();
         rt.spawn(async move {
             let slots = at_once.map(|n| Arc::new(tokio::sync::Semaphore::new(n)));
@@ -292,13 +294,20 @@ impl AppCore {
                     }
                     let opts = ExecuteOptions {
                         flags: flags::REPLAYED | if o.breakpoint { flags::BREAKPOINTED } else { 0 },
-                        comment: Some(format!("Replay of #{orig}")),
+                        comment: Some(format!("Replay of #{orig}; batch #{}", batch.id)),
                         hooks: true,
                         force_h2: None,
                     };
+                    let ticket = batch.submit();
                     let (shared, head, body) = (shared.clone(), head.clone(), body.clone());
                     running.spawn(async move {
-                        quena_proxy::execute(shared, head, body, opts).await;
+                        let capture = shared.capture();
+                        let mut session = None;
+                        quena_proxy::execute_with(shared, head, body, opts, |id| session = capture.live(id)).await;
+                        // Keep the outcome even if the user clears the list or retention
+                        // removes this row while the request is still running.
+                        let failed = session.is_none_or(|live| { let s = live.summary(); s.state == SessionState::Aborted || s.status >= 400 });
+                        ticket.finish(failed);
                         drop(permit);
                     });
                     // Reap completions without scanning every task still in flight.
@@ -310,6 +319,7 @@ impl AppCore {
                     }
                 }
             }
+            batch.finish_submission();
             // Stopping submission still lets requests already in flight finish.
             while running.join_next().await.is_some() {}
         });
@@ -319,6 +329,7 @@ impl AppCore {
     /// Stop the running replays (requests in flight finish).
     pub fn replay_stop(&self) {
         self.replay_generation.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        for b in self.replay_batches.lock().iter() { b.stop(); }
     }
 
     /// Execute a Composer request. Returns the new session id.

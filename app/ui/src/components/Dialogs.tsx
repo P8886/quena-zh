@@ -21,6 +21,7 @@ const ReverseProxyPanel = lazy(() => import("./ReverseProxyDialog").then((m) => 
 const LaunchPanel = lazy(() => import("./LaunchDialog").then((m) => ({ default: m.LaunchPanel })));
 const HostRemapPanel = lazy(() => import("./HostRemapDialog").then((m) => ({ default: m.HostRemapPanel })));
 const CaptureDiffPanel = lazy(() => import("./CaptureDiffDialog").then((m) => ({ default: m.CaptureDiffPanel })));
+const ReplayProgressPanel = lazy(() => import("./ReplayProgressDialog").then((m) => ({ default: m.ReplayProgressPanel })));
 const RewriteEditor = lazy(() => import("../panels/RewriteEditor").then((m) => ({ default: m.RewriteEditor })));
 const RewriteApply = lazy(() => import("../panels/RewriteEditor").then((m) => ({ default: m.RewriteApply })));
 import { CommandPalette } from "./CommandPalette";
@@ -1355,6 +1356,8 @@ function DialogBody({ d }: { d: Dialog }) {
       return <PromptDialog title={d.title} label={d.label} initial={d.initial} secret={d.secret} resolve={d.resolve} />;
     case "replay":
       return <ReplayDialog ids={d.ids} />;
+    case "replay-progress":
+      return <Modal title={t("Replay Progress")} onClose={close} wide><ReplayProgressPanel /></Modal>;
     case "comment":
       return <CommentDialog ids={d.ids} initial={d.initial} />;
     case "help":

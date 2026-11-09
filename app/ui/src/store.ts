@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { NetworkProfile } from "./lib/diagReport";
-import type { FilterSettings, GroupBy, JobInfo, LogEntry, RwRule, SanitizedExport, SessionId, Settings, Sort, Status } from "./api";
+import type { FilterSettings, GroupBy, JobInfo, LogEntry, ReplayBatchInfo, RwRule, SanitizedExport, SessionId, Settings, Sort, Status } from "./api";
 import { t } from "./i18n";
 import type { MessageEdits } from "./sessionEdits";
 
@@ -298,6 +298,7 @@ export type Dialog =
   | { kind: "compare"; a: string; b: string; titleA: string; titleB: string }
   | { kind: "prompt"; title: string; label: string; initial: string; secret?: boolean; resolve: (v: string | null) => void }
   | { kind: "replay"; ids: SessionId[] }
+  | { kind: "replay-progress" }
   | { kind: "library" }
   | { kind: "confirm"; title: string; message: string; confirm: string; resolve: (ok: boolean) => void }
   | {
@@ -353,6 +354,7 @@ export interface AppState {
   /** Unsent edits survive selection changes and switching inspector tabs. */
   messageDrafts: Record<string, MessageEdits>;
   unlockedSessions: Set<SessionId>;
+  replayBatches: ReplayBatchInfo[];
 }
 
 export const useStore = create<AppState>(() => ({
@@ -387,6 +389,7 @@ export const useStore = create<AppState>(() => ({
   charsetOverrides: { id: null, map: {} },
   messageDrafts: {},
   unlockedSessions: new Set(),
+  replayBatches: [],
 }));
 
 export const set = useStore.setState;

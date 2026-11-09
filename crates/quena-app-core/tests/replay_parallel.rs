@@ -18,11 +18,13 @@ fn slow_server(total: Arc<AtomicUsize>, now: Arc<AtomicUsize>, most: Arc<AtomicU
             let (total, now, most) = (total.clone(), now.clone(), most.clone());
             std::thread::spawn(move || {
                 let mut r = BufReader::new(s.try_clone().unwrap());
+                let mut failed = false;
                 loop {
                     let mut line = String::new();
                     if r.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
                         break;
                     }
+                    if line.starts_with("GET /fail ") { failed = true; }
                 }
                 let n = now.fetch_add(1, Ordering::SeqCst) + 1;
                 most.fetch_max(n, Ordering::SeqCst);
@@ -30,7 +32,8 @@ fn slow_server(total: Arc<AtomicUsize>, now: Arc<AtomicUsize>, most: Arc<AtomicU
                 std::thread::sleep(Duration::from_millis(80));
                 now.fetch_sub(1, Ordering::SeqCst);
                 let mut s = s;
-                let _ = s.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+                let status = if failed { "503 Unavailable" } else { "200 OK" };
+                let _ = write!(s, "HTTP/1.1 {status}\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
             });
         }
     });
@@ -142,9 +145,79 @@ fn unrestricted_repeats_start_more_than_100_requests_before_any_response() {
     }
     assert!(matches!(responses.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)));
     assert!(matches!(requests.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)), "repeat count multiplied by concurrency");
+    let batch = &core.replay_batches()[0];
+    assert_eq!((batch.planned, batch.submitted, batch.running, batch.completed, batch.peak), (128, 128, 128, 0, 128));
+    // Removing a captured row must not turn a successful network request into a
+    // batch failure. The progress owns the outcome independently of list retention.
+    let cap = core.capture();
+    let removed: std::collections::HashSet<_> = cap.index.find_all(|s| s.has_flag(quena_model::flags::REPLAYED)).into_iter().take(2).collect();
+    assert_eq!(removed.len(), 2);
+    cap.remove(&removed);
     release.send_replace(true);
     for _ in 0..128 {
         responses.recv_timeout(Duration::from_secs(5)).unwrap();
     }
+    let t = Instant::now();
+    while core.replay_batches()[0].completed != 128 {
+        assert!(t.elapsed() < Duration::from_secs(5));
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let batch = &core.replay_batches()[0];
+    assert_eq!((batch.submitted, batch.running, batch.completed, batch.failed), (128, 0, 128, 0));
+    assert!(batch.submission_done && batch.requests_per_second > 0.0);
+    core.shutdown();
+}
+
+#[test]
+fn batch_stop_and_failures_are_isolated_from_other_replays_and_normal_capture() {
+    use quena_model::{HttpVersion, RequestHead, SessionDetail, SessionKind, SessionState};
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("settings.json"), r#"{"proxy":{"port":0,"actAsSystemProxy":false,"captureOnStartup":false,"useSystemUpstream":false}}"#).unwrap();
+    let core = AppCore::new(Paths::at(dir.path().to_path_buf()), quena_app_core::logbuf::LogBuffer::new(100)).unwrap();
+    let engine = quena_app_core::engine::ProxyEngine::new(&core).unwrap();
+    core.set_proxy_engine(engine.clone());
+    core.start_capture().unwrap();
+    let addr = engine.proxy.listen_addrs().into_iter().find(|a| a.is_ipv4()).unwrap();
+    let port = slow_server(Default::default(), Default::default(), Default::default());
+    let add = |path: &str| {
+        let mut d = SessionDetail::default();
+        d.summary.kind = SessionKind::Http;
+        d.summary.state = SessionState::Done;
+        d.request = RequestHead { method: "GET".into(), url: format!("http://127.0.0.1:{port}{path}"), version: HttpVersion::Http11, headers: Default::default() };
+        core.capture().insert(d, quena_body::Body::empty(), quena_body::Body::empty())
+    };
+    let (ok, fail) = (add("/ok"), add("/fail"));
+    core.replay(vec![ok], ReplayOptions { count: 50, parallel: 1, ..Default::default() }).unwrap();
+    let stopped_id = core.replay_batches()[0].id;
+    core.replay(vec![fail], ReplayOptions { count: 3, parallel: 2, ..Default::default() }).unwrap();
+    let failed_id = core.replay_batches()[0].id;
+    let t = Instant::now();
+    while core.replay_batches().iter().find(|b| b.id == stopped_id).unwrap().submitted < 2 {
+        assert!(t.elapsed() < Duration::from_secs(5));
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(core.replay_stop_batch(stopped_id));
+    // This ordinary proxied request must not contribute to either batch's counters.
+    let out = Command::new("curl").args(["-sS", "--noproxy", "", "--max-time", "10", "-x", &format!("http://{addr}"), &format!("http://127.0.0.1:{port}/normal")]).output().unwrap();
+    assert!(out.status.success());
+    let batches = loop {
+        let batches = core.replay_batches();
+        if batches.iter().all(|b| b.submission_done && b.running == 0) { break batches; }
+        assert!(t.elapsed() < Duration::from_secs(10));
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    let stopped = batches.iter().find(|b| b.id == stopped_id).unwrap();
+    let failed = batches.iter().find(|b| b.id == failed_id).unwrap();
+    assert!(stopped.stopped && stopped.submitted >= 2 && stopped.submitted < 50);
+    assert_eq!((stopped.completed, stopped.failed, stopped.peak), (stopped.submitted, 0, 1));
+    assert_eq!((failed.planned, failed.submitted, failed.completed, failed.failed, failed.peak), (3, 3, 3, 3, 2));
+    assert!(!failed.stopped);
+    for b in &batches {
+        assert_eq!(b.submitted, b.completed + b.running);
+        assert!(b.min_ms.unwrap() <= b.mean_ms && b.mean_ms <= b.max_ms.unwrap());
+        assert!(b.elapsed_ms > 0 && b.requests_per_second > 0.0);
+    }
+    std::thread::sleep(Duration::from_millis(25));
+    assert_eq!(core.replay_batches(), batches, "finished timings must freeze");
     core.shutdown();
 }

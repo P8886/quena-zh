@@ -365,6 +365,23 @@ export interface Status {
   mockRunning: boolean;
 }
 
+export interface ReplayBatchInfo {
+  id: number;
+  planned: number;
+  submitted: number;
+  running: number;
+  completed: number;
+  failed: number;
+  peak: number;
+  submissionDone: boolean;
+  stopped: boolean;
+  elapsedMs: number;
+  requestsPerSecond: number;
+  meanMs: number;
+  minMs: number | null;
+  maxMs: number | null;
+}
+
 export interface JobInfo {
   id: number;
   key: string;
@@ -1576,6 +1593,8 @@ export const api = {
   wsFrames: (id: SessionId, start: number, count: number) => invoke<WsMessages>("ws_frames", { id, start, count }),
   deviceInfo: () => invoke<DeviceInfo>("device_info"),
   replayStop: () => invoke<void>("replay_stop"),
+  replayBatches: () => invoke<ReplayBatchInfo[]>("replay_batches"),
+  replayStopBatch: (id: number) => invoke<boolean>("replay_stop_batch", { id }),
   replay: (ids: SessionId[], options: { unconditional?: boolean; count?: number; breakpoint?: boolean; sequential?: boolean; parallel?: number }) =>
     invoke<number>("replay", { ids, options }),
   compose: (request: ComposeRequest) => invoke<SessionId>("compose", { request }),

@@ -995,6 +995,16 @@ async fn edit_session(core: State<'_, Core>, id: SessionId, edit: quena_app_core
 }
 
 #[tauri::command]
+async fn replay_batches(core: State<'_, Core>) -> R<Vec<quena_app_core::replay_progress::ReplayBatchInfo>> {
+    Ok(core.replay_batches())
+}
+
+#[tauri::command]
+async fn replay_stop_batch(core: State<'_, Core>, id: u64) -> R<bool> {
+    Ok(core.replay_stop_batch(id))
+}
+
+#[tauri::command]
 async fn bp_go(core: State<'_, Core>) -> R<usize> {
     Ok(rules(core.inner())?.go_all())
 }
@@ -1536,6 +1546,8 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Syn
         bp_resume,
         editable_body,
         edit_session,
+        replay_batches,
+        replay_stop_batch,
         bp_go,
         plugins_list,
         plugin_set_enabled,

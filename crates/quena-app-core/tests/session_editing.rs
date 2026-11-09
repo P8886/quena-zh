@@ -162,7 +162,7 @@ fn saved_request_is_used_by_replay_and_saz() {
     assert_eq!((d.request.method.as_str(), d.request.url.as_str()), ("PUT", url.as_str()));
     assert_eq!(bytes(&core.capture().bodies_of(loaded[0]).unwrap().0), text.as_bytes());
     let start = Instant::now();
-    while core.capture().index.find_all(|s| s.has_flag(quena_model::flags::REPLAYED) && s.state.is_final()).is_empty() {
+    while core.replay_batches()[0].completed != 1 {
         assert!(start.elapsed() < Duration::from_secs(5));
         std::thread::sleep(Duration::from_millis(10));
     }

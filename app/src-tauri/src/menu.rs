@@ -237,6 +237,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
             &item(app, "view.tearoff", "Tear off Inspectors", None)?,
             &sep()?,
             &item(app, "view.jobs", "Jobs", None)?,
+            &item(app, "view.replays", "Replay Progress…", None)?,
             &item(app, "dev.overlay", "Performance Overlay", Some("CmdOrCtrl+Shift+P"))?,
             // Mock data and reloading the UI are for developing Quena: debug builds only.
             #[cfg(debug_assertions)]

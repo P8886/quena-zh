@@ -4392,3 +4392,9 @@ table.kv td.nowrap {
   max-height: 160px;
   overflow: auto;
 }
+.replay-batch { border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin: 12px 0; }
+.replay-batch-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.replay-batch progress { width: 100%; height: 8px; margin: 12px 0; }
+.replay-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(85px, 1fr)); gap: 12px; }
+.replay-metrics > div { display: flex; flex-direction: column; gap: 4px; font-variant-numeric: tabular-nums; }
+.replay-batch p { margin: 8px 0 0; }

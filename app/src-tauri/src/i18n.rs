@@ -58,6 +58,7 @@ pub fn tr(en: &str) -> &str {
 
 fn de(en: &str) -> Option<&'static str> {
     Some(match en {
+        "Replay Progress…" => "Replay-Fortschritt…",
         "Settings…" => "Einstellungen…",
         "New Viewer" => "Neues Fenster",
         "Load Archive…" => "Archiv laden…",
@@ -214,6 +215,7 @@ mod tests {
 
 fn zh(en: &str) -> Option<&'static str> {
     Some(match en {
+        "Replay Progress…" => "重发进度…",
         "Settings…" => "设置…",
         "New Viewer" => "新建查看窗口",
         "Load Archive…" => "打开归档…",

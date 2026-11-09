@@ -16,6 +16,8 @@ contain breaking changes (settings, file formats, plugin API).
   replay limit. Explicit limits remain 1–100, and sequential replay is still available.
 - F2 unlocks a finished HTTP session for editing in the inspector. Save and lock, save
   and replay, or discard its drafts. Saved changes are used by replay and SAZ export.
+- Replay progress groups requests by batch, with submitted/completed/failed counts,
+  peak concurrency, throughput and request durations; each batch can be stopped separately.
 
 ### Fixed
 - Breakpoint drafts survive selection and inspector-tab changes. Resume All and the `g`

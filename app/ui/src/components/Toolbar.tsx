@@ -55,6 +55,7 @@ export function Toolbar() {
             showContextMenu(e.clientX, e.clientY + 8, [
               { label: t("Replay Requests"), shortcut: "R", action: () => import("../replay").then((m) => m.replaySelected({})) },
               { label: t("Advanced Replay…"), shortcut: "Shift+R", action: () => import("../replay").then((m) => m.replaySelected({ repeat: true })) },
+              { label: t("Replay Progress…"), action: () => set({ dialog: { kind: "replay-progress" } }) },
               { label: t("Stop Replay"), action: () => import("../replay").then((m) => m.stopReplay()) },
               { label: t("Replay Unconditionally"), shortcut: "U", action: () => import("../replay").then((m) => m.replaySelected({ unconditional: true })) },
               { label: t("Replay and Edit"), action: () => import("../replay").then((m) => m.replaySelected({ breakpoint: true })) },
