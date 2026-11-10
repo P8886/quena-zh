@@ -144,6 +144,12 @@ export async function handleMenu(id: string) {
       return actions.collapseGroups(true);
     case "view.groups-expand":
       return actions.collapseGroups(false);
+    case "view.layout-quena":
+      return actions.applyLayoutPreset("quena");
+    case "view.layout-classic":
+      return actions.applyLayoutPreset("classic");
+    case "view.layout-wide":
+      return actions.applyLayoutPreset("wide");
     case "view.stacked":
       set((s) => ({ layout: { ...s.layout, stacked: true } }));
       return actions.saveLayout();

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { api, isTauri, on, type CaptureImport, type JobInfo, type LogEntry, type ReplayBatchInfo, type Status } from "./api";
 import { captureImported } from "./fileActions";
 import { baseName } from "./lib/importFormats";
@@ -8,6 +8,7 @@ import { ContextMenuHost } from "./components/ContextMenu";
 import { Dialogs } from "./components/Dialogs";
 import { PerfOverlay } from "./components/PerfOverlay";
 import { StatusBar } from "./components/StatusBar";
+import { Splitter } from "./components/Splitter";
 import { Toolbar } from "./components/Toolbar";
 import { SessionGrid } from "./grid/SessionGrid";
 import { RightPane } from "./panels/RightPane";
@@ -121,34 +122,6 @@ function useBoot() {
   }, []);
 }
 
-/** `min` = smallest size in px of the areas before and after the splitter, so dragging can
- * never squeeze one of them into something unusable. */
-function Splitter({ onDrag, vertical, min = [120, 120] }: { onDrag: (fraction: number) => void; vertical?: boolean; min?: [number, number] }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const down = (e: React.PointerEvent) => {
-    e.preventDefault();
-    const parent = ref.current!.parentElement!;
-    const rect = parent.getBoundingClientRect();
-    const move = (ev: PointerEvent) => {
-      const size = vertical ? rect.height : rect.width;
-      const f = vertical ? (ev.clientY - rect.top) / size : (ev.clientX - rect.left) / size;
-      const lo = Math.min(0.5, min[0] / size);
-      const hi = Math.max(0.5, 1 - min[1] / size);
-      onDrag(Math.min(hi, Math.max(lo, f)));
-    };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      actions.saveLayout();
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-  };
-  return <div ref={ref} className={vertical ? "splitter-h" : "splitter-v"} onPointerDown={down} />;
-}
-
-export { Splitter };
-
 /** Apply the chosen theme to the document (CSS tokens switch on `data-theme`). */
 function useTheme() {
   const theme = useStore((s) => s.layout.theme ?? "system");
@@ -165,6 +138,8 @@ export function App() {
   useBoot();
   useTheme();
   const leftWidth = useStore((s) => s.layout.leftWidth);
+  const wide = useStore((s) => s.layout.preset === "wide");
+  const listHeight = useStore((s) => s.layout.listHeight);
   const navOpen = useStore((s) => !!s.layout.navOpen);
   const navWidth = useStore((s) => s.layout.navWidth ?? 0.17);
   const overlay = useStore((s) => s.overlay);
@@ -183,12 +158,21 @@ export function App() {
             <Splitter min={[170, 760]} onDrag={(f) => set((s) => ({ layout: { ...s.layout, navWidth: f } }))} />
           </>
         )}
-        <div className="main" style={{ gridTemplateColumns: `minmax(280px, ${leftWidth * 100}%) 8px minmax(380px, 1fr)` }}>
+        <div
+          className={`main${wide ? " main-wide" : ""}`}
+          style={wide
+            ? { gridTemplateColumns: "minmax(0, 1fr)", gridTemplateRows: `minmax(140px, ${listHeight}fr) 8px minmax(240px, ${1 - listHeight}fr)` }
+            : { gridTemplateColumns: `minmax(280px, ${leftWidth * 100}%) 8px minmax(380px, 1fr)` }}
+        >
           <div className="left">
             <ScopeBar />
             <SessionGrid />
           </div>
-          <Splitter min={[320, 420]} onDrag={(f) => set((s) => ({ layout: { ...s.layout, leftWidth: f } }))} />
+          <Splitter
+            vertical={wide}
+            min={wide ? [140, 240] : [320, 420]}
+            onDrag={(f) => set((s) => ({ layout: { ...s.layout, [wide ? "listHeight" : "leftWidth"]: f } }))}
+          />
           <RightPane />
         </div>
       </div>

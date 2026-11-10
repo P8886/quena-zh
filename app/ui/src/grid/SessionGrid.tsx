@@ -15,9 +15,9 @@ import { groupMenu, listMenu, sessionMenu } from "../menus";
 import { t } from "../i18n";
 import { browserMenuWanted } from "../components/contextMenus";
 
-/** Row height: roomy in the Quena layout, dense in Classic. */
+/** Row height: roomy in Quena, dense in Classic and Wide. */
 let ROW_H = 24;
-const rowHeightFor = (preset: string) => (preset === "classic" ? 20 : 24);
+const rowHeightFor = (preset: string) => (preset === "quena" ? 24 : 20);
 const MAX_SCROLL_PX = 8_000_000;
 /** A fixed gutter keeps breakpoint dots visible independently of columns and scrolling. */
 const INDICATOR_W = 22;
@@ -533,7 +533,7 @@ export class GridController {
     // Soft row separators (the Classic layout keeps column lines instead).
     ctx.strokeStyle = p.grid;
     ctx.beginPath();
-    if (get().layout.preset === "classic") {
+    if (get().layout.preset !== "quena") {
       ctx.moveTo(INDICATOR_W - 0.5, 0);
       ctx.lineTo(INDICATOR_W - 0.5, this.vh);
       let x = INDICATOR_W - sx;

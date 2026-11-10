@@ -1186,6 +1186,9 @@ function LayoutChoice() {
         <label className="f-check">
           <input type="radio" name="layout-preset" checked={preset === "classic"} onChange={() => actions.applyLayoutPreset("classic")} /> {t("Classic — dense list, request above response, more columns")}
         </label>
+        <label className="f-check">
+          <input type="radio" name="layout-preset" checked={preset === "wide"} onChange={() => actions.applyLayoutPreset("wide")} /> {t("Wide — list above, request left, response right")}
+        </label>
       </div>
     </div>
   );

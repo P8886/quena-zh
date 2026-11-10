@@ -162,11 +162,12 @@ export const CLASSIC_COLUMNS: ColumnConf[] = [
   col("header3", 110, false),
 ];
 
-export type LayoutPreset = "quena" | "classic";
+export type LayoutPreset = "quena" | "classic" | "wide";
 
 export interface Layout {
   leftWidth: number; // fraction of window width
-  inspectorSplit: number; // fraction of inspector height for the request
+  listHeight: number; // fraction of workspace height for the list in the wide layout
+  inspectorSplit: number; // request's fraction of inspector height (stacked) or width (side by side)
   stacked: boolean; // request/response left/right (false) or top/bottom (true = stacked)
   columns: ColumnConf[];
   requestTab: string;
@@ -224,10 +225,13 @@ export const PRESETS: Record<LayoutPreset, PresetParts> = {
   quena: { leftWidth: 0.5, inspectorSplit: 0.5, stacked: true, columns: DEFAULT_COLUMNS },
   // Dense list, request above response.
   classic: { leftWidth: 0.52, inspectorSplit: 0.42, stacked: true, columns: CLASSIC_COLUMNS },
+  // Full-width list above the request and response, displayed side by side.
+  wide: { leftWidth: 0.5, inspectorSplit: 0.5, stacked: false, columns: CLASSIC_COLUMNS },
 };
 
 export const DEFAULT_LAYOUT: Layout = {
   ...PRESETS.quena,
+  listHeight: 0.42,
   requestTab: "headers",
   responseTab: "headers",
   rememberViews: true,

@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, type Detail, type Part, type Variant } from "../api";
 import { fmtBytes, fmtInt } from "../lib/format";
 import { get, set, useStore } from "../store";
-import { Splitter } from "../App";
+import { Splitter } from "../components/Splitter";
 import { HeadersView } from "./HeadersView";
 import { BodyText } from "./BodyText";
 import { HexView } from "./HexView";

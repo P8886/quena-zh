@@ -264,6 +264,16 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
                 ],
             )?,
             &sep()?,
+            &Submenu::with_items(
+                app,
+                tr("Layout"),
+                true,
+                &[
+                    &item(app, "view.layout-quena", "Quena Layout", None)?,
+                    &item(app, "view.layout-classic", "Classic Layout", None)?,
+                    &item(app, "view.layout-wide", "Wide Layout", None)?,
+                ],
+            )?,
             &item(app, "view.stacked", "Request Above Response", None)?,
             &item(app, "view.wide", "Request Beside Response", None)?,
             &item(app, "view.tearoff", "Tear off Inspectors", None)?,

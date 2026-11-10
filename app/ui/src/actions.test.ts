@@ -3,7 +3,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { api, type Settings, type Status } from "./api";
 import { actions } from "./actions";
 import { grid, rowCache } from "./grid/SessionGrid";
-import { get, set } from "./store";
+import { DEFAULT_LAYOUT, get, set } from "./store";
 
 vi.mock("./grid/SessionGrid", () => ({
   grid: { scrollToIndex: vi.fn(), visibleCount: vi.fn(() => 10) },
@@ -19,6 +19,34 @@ beforeEach(() => {
     settings: null, listCount: 0, dialog: null, messageDrafts: {}, unlockedSessions: new Set(),
     status: null, captureBusy: null, systemProxyBusy: null,
   });
+});
+
+it("switches layout through the menu, persists it and keeps the selected session and unsent edits", async () => {
+  vi.useFakeTimers();
+  try {
+    const save = vi.spyOn(api, "saveUiPrefs").mockResolvedValue(undefined);
+    const selection = new Set([42]);
+    const messageDrafts = { "42:request": { head: null, body: "unsent request edits", file: null } };
+    set({
+      layout: { ...DEFAULT_LAYOUT, listHeight: 0.36, requestTab: "raw", responseTab: "json" },
+      selection, focusId: 42, focusIndex: 3, messageDrafts, unlockedSessions: new Set([42]),
+    });
+    await actions.menu("view.layout-wide");
+    expect(get().layout).toMatchObject({ preset: "wide", stacked: false, listHeight: 0.36, requestTab: "raw", responseTab: "json" });
+    expect(get()).toMatchObject({ selection, focusId: 42, focusIndex: 3, messageDrafts });
+    expect(get().unlockedSessions.has(42)).toBe(true);
+    await vi.advanceTimersByTimeAsync(400);
+    expect(save).toHaveBeenCalledWith({ layout: get().layout });
+    await actions.menu("view.layout-classic");
+    expect(get().layout).toMatchObject({ preset: "classic", stacked: true });
+    await actions.menu("view.layout-quena");
+    expect(get().layout).toMatchObject({ preset: "quena", stacked: true });
+    expect(get().messageDrafts).toBe(messageDrafts);
+  } finally {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+    set({ layout: DEFAULT_LAYOUT });
+  }
 });
 
 it.each([true, false])("F12 toggles local capture to %s and refreshes the saved preference without stopping the listener", async (on) => {
