@@ -9,6 +9,7 @@ import { clause, fieldOf, filtersOn, withClause } from "../lib/columnFilter";
 import { isHeaderColumn, removeHeaderColumn } from "../headerColumns";
 import { RowCache } from "./rowCache";
 import { methodPill, readPalette, rowStyle, stateMark, statusPill, type Palette, type Pill } from "./style";
+import { drawSessionIcon, sessionIcon, sessionIconTitle } from "./sessionIcon";
 import { actions } from "../actions";
 import { showContextMenu } from "../components/ContextMenu";
 import { groupMenu, listMenu, sessionMenu } from "../menus";
@@ -19,8 +20,8 @@ import { browserMenuWanted } from "../components/contextMenus";
 let ROW_H = 24;
 const rowHeightFor = (preset: string) => (preset === "quena" ? 24 : 20);
 const MAX_SCROLL_PX = 8_000_000;
-/** A fixed gutter keeps breakpoint dots visible independently of columns and scrolling. */
-const INDICATOR_W = 22;
+/** A fixed gutter shows the session type, replaced by a dot while paused at a breakpoint. */
+const INDICATOR_W = 30;
 const FONT = "12px -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif";
 const FONT_BOLD = "600 12px -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif";
 const FONT_ITALIC = "italic 12px -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif";
@@ -254,6 +255,7 @@ export class GridController {
         }
         if (
           s.selection !== prev.selection ||
+          s.unlockedSessions !== prev.unlockedSessions ||
           s.focusIndex !== prev.focusIndex ||
           s.layout.columns !== prev.layout.columns ||
           s.layout.preset !== prev.layout.preset ||
@@ -425,7 +427,7 @@ export class GridController {
   private draw() {
     const ctx = this.ctx;
     if (!ctx) return;
-    const { listTotal, selection, focusIndex } = get();
+    const { listTotal, selection, focusIndex, unlockedSessions } = get();
     const p = this.pal;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.fillStyle = p.bg;
@@ -518,6 +520,9 @@ export class GridController {
         ctx.lineWidth = 0.75;
         ctx.stroke();
         ctx.lineWidth = 1;
+      } else {
+        const icon = sessionIcon(r, unlockedSessions.has(r.id));
+        if (icon) drawSessionIcon(ctx, icon, 7, y + (ROW_H - 14) / 2, 14, p, st.bg ? st.fg : undefined);
       }
       if (focusIndex === i && this.hasFocus) {
         ctx.strokeStyle = p.focus;
@@ -702,7 +707,7 @@ function Header({ scrollX }: { scrollX: number }) {
             </div>
           ))}
       </div>
-      <div className="grid-indicator-header" style={{ width: INDICATOR_W }} aria-hidden />
+      <div className="grid-indicator-header" style={{ width: INDICATOR_W }} title={t("Session type; breakpoint markers take priority")} aria-hidden />
     </div>
   );
 }
@@ -783,6 +788,12 @@ export function SessionGrid() {
         className="grid-scroller"
         tabIndex={0}
         onMouseDown={onMouseDown}
+        onMouseMove={(e) => {
+          const row = rowCache.get(grid.indexAt(e.clientY));
+          const inGutter = e.clientX - e.currentTarget.getBoundingClientRect().left < INDICATOR_W;
+          e.currentTarget.title = inGutter && row ? sessionIconTitle(row, get().unlockedSessions.has(row.id)) : "";
+        }}
+        onMouseLeave={(e) => e.currentTarget.removeAttribute("title")}
         onDoubleClick={() => actions.showTab("inspectors")}
         onContextMenu={onContextMenu}
         onKeyDown={onKeyDown}

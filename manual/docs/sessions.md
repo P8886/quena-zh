@@ -5,6 +5,18 @@ the client process and your own notes. The list handles hundreds of thousands of
 
 ## Columns
 
+The fixed gutter before `#` shows a session icon. Hover over it for its meaning:
+response formats such as JSON, JavaScript, images and fonts; WebSocket, SSE and CONNECT;
+or outcomes such as redirects, cached responses, authentication errors and interruptions.
+An actual `Content-Type` takes precedence over URL extensions; a tooltip identifies types
+inferred from the URL when the header is absent. POST requests with a known response type
+keep that type's icon; the Method badge already identifies POST.
+
+While a breakpoint is paused, its red request dot or yellow response dot replaces the
+type icon. Resuming restores the icon. Unlocking a completed session for editing shows
+an open lock until editing ends. A tunnel icon does not identify the encrypted protocol
+inside an undecrypted tunnel.
+
 | Column | Shows |
 |---|---|
 | `#` | Session number, in arrival order. |
