@@ -806,6 +806,17 @@ enum Waiter {
     Response(oneshot::Sender<Resume>),
 }
 
+impl Waiter {
+    fn send(self, resume: Resume) {
+        match self {
+            Self::Request(tx) | Self::Response(tx) => { let _ = tx.send(resume); }
+        }
+    }
+}
+
+/// Capture numbering plus display id: clearing or switching captures can reuse an id.
+type BreakpointKey = (u64, SessionId);
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PausedInfo {
@@ -828,9 +839,9 @@ pub struct Rules {
     packages: Mutex<()>,
     next_rule: AtomicU64,
     bp: RwLock<BreakpointState>,
-    paused: Mutex<HashMap<SessionId, (Waiter, PausedInfo)>>,
+    paused: Mutex<HashMap<BreakpointKey, (Waiter, PausedInfo)>>,
     /// Sessions that asked to break on the response (Break on Response / *bpafter).
-    break_response: Mutex<std::collections::HashSet<SessionId>>,
+    break_response: Mutex<std::collections::HashSet<BreakpointKey>>,
     path: PathBuf,
     // ---- Scripting (M14)
     script: ScriptEngine,
@@ -1215,28 +1226,54 @@ impl Rules {
     }
 
     pub fn paused(&self) -> Vec<PausedInfo> {
-        let mut v: Vec<PausedInfo> = self.paused.lock().values().map(|(_, i)| i.clone()).collect();
+        let paused = self.paused.lock();
+        let numbering = self.core().map(|c| c.capture().numbering());
+        let mut v: Vec<PausedInfo> = paused.iter().filter(|((n, _), _)| Some(*n) == numbering).map(|(_, (_, i))| i.clone()).collect();
         v.sort_by_key(|p| p.id);
         v
     }
 
     pub fn resume(&self, id: SessionId, r: Resume) -> Result<()> {
-        let (w, _) = self.paused.lock().remove(&id).ok_or_else(|| anyhow!("session #{id} is not paused"))?;
-        let _ = match w {
-            Waiter::Request(tx) => tx.send(r),
-            Waiter::Response(tx) => tx.send(r),
+        let (w, _) = {
+            let mut paused = self.paused.lock();
+            let numbering = self.core().ok_or_else(|| anyhow!("no core"))?.capture().numbering();
+            paused.remove(&(numbering, id)).ok_or_else(|| anyhow!("session #{id} is not paused"))?
         };
+        w.send(r);
         Ok(())
     }
 
     /// Resume all paused sessions unchanged (`g`, toolbar "Go").
     pub fn go_all(&self) -> usize {
-        let all: Vec<SessionId> = self.paused.lock().keys().copied().collect();
+        // Take the actual waiters together. Looking ids up again after a clear could release
+        // newly paused requests with those ids instead of the ones the user chose.
+        let all: Vec<_> = {
+            let mut paused = self.paused.lock();
+            let numbering = self.core().map(|c| c.capture().numbering());
+            paused.extract_if(|(n, _), _| Some(*n) == numbering).map(|(_, (w, _))| w).collect()
+        };
         let n = all.len();
-        for id in all {
-            let _ = self.resume(id, Resume { action: "continue".into(), head_text: None, body_text: None, body_charset: None, body_file: None, status: None });
+        for waiter in all {
+            waiter.send(Resume { action: "continue".into(), head_text: None, body_text: None, body_charset: None, body_file: None, status: None });
         }
         n
+    }
+
+    /// A cleared breakpoint has no row from which to resume it. Abort it rather than leave
+    /// a hidden wait or forward a request the user has not released.
+    pub(crate) fn discard_cleared_breakpoints(&self) {
+        let Some(core) = self.core() else { return };
+        let all: Vec<_> = {
+            let mut paused = self.paused.lock();
+            let numbering = core.capture().numbering();
+            paused.extract_if(|(n, _), _| *n != numbering).map(|(_, (w, _))| w).collect()
+        };
+        for waiter in all {
+            waiter.send(Resume { action: "abort".into(), head_text: None, body_text: None, body_charset: None, body_file: None, status: None });
+        }
+        let mut responses = self.break_response.lock();
+        let numbering = core.capture().numbering();
+        responses.retain(|(n, _)| *n == numbering);
     }
 
     fn bp_request(&self, s: &SessionView, head: &RequestHead) -> bool {
@@ -1256,7 +1293,7 @@ impl Rules {
     }
 
     fn bp_response(&self, s: &SessionView, req: &RequestHead, resp: &ResponseHead) -> bool {
-        if self.break_response.lock().contains(&s.id) {
+        if self.break_response.lock().contains(&(s.live.numbering(), s.id)) {
             return true;
         }
         let b = self.bp.read();
@@ -1492,20 +1529,31 @@ impl Rules {
     async fn pause(self: Arc<Self>, s: SessionView, phase: &str, url: String) -> Resume {
         let (tx, rx) = oneshot::channel();
         let info = PausedInfo { id: s.id, phase: phase.into(), url, since: now_us() };
-        self.paused.lock().insert(s.id, (if phase == "request" { Waiter::Request(tx) } else { Waiter::Response(tx) }, info.clone()));
+        let key = (s.live.numbering(), s.id);
+        {
+            let mut paused = self.paused.lock();
+            let current = self.core().is_some_and(|core| {
+                let cap = core.capture();
+                cap.numbering() == key.0 && cap.live(s.id).is_some_and(|live| Arc::ptr_eq(&live, &s.live))
+            });
+            if !current {
+                return Resume { action: "abort".into(), head_text: None, body_text: None, body_charset: None, body_file: None, status: None };
+            }
+            paused.insert(key, (if phase == "request" { Waiter::Request(tx) } else { Waiter::Response(tx) }, info.clone()));
+            s.live.update(|d| {
+                d.summary.flags |= flags::BREAKPOINTED;
+                d.summary.state = if phase == "request" { SessionState::BreakpointRequest } else { SessionState::BreakpointResponse };
+            });
+        }
         // Removes the entry also when this future is dropped (the client went away while
         // paused), so no dead breakpoint stays listed.
-        struct Unpause<'a>(&'a Mutex<HashMap<SessionId, (Waiter, PausedInfo)>>, SessionId);
+        struct Unpause<'a>(&'a Mutex<HashMap<BreakpointKey, (Waiter, PausedInfo)>>, BreakpointKey);
         impl Drop for Unpause<'_> {
             fn drop(&mut self) {
                 self.0.lock().remove(&self.1);
             }
         }
-        let unpause = Unpause(&self.paused, s.id);
-        s.live.update(|d| {
-            d.summary.flags |= flags::BREAKPOINTED;
-            d.summary.state = if phase == "request" { SessionState::BreakpointRequest } else { SessionState::BreakpointResponse };
-        });
+        let unpause = Unpause(&self.paused, key);
         if let Some(c) = self.core() {
             c.emit("breakpoint", &info);
         }
@@ -1674,7 +1722,7 @@ impl Interceptor for Rules {
                 if a == "*bpu" {
                     want_bp = true;
                 } else if a == "*bpafter" {
-                    this.break_response.lock().insert(s.id);
+                    this.break_response.lock().insert((s.live.numbering(), s.id));
                 } else {
                     // File work (Map Local, response files) runs on a blocking thread so large
                     // or slow files do not stall the proxy's async workers.
@@ -1886,7 +1934,7 @@ impl Interceptor for Rules {
                         }
                     }
                     "breakOnResponse" => {
-                        this.break_response.lock().insert(s.id);
+                        this.break_response.lock().insert((s.live.numbering(), s.id));
                     }
                     _ => {}
                 }
@@ -1997,7 +2045,7 @@ impl Interceptor for Rules {
             let req = s.live.detail().request;
             // Buffered for a breakpoint, a rewrite, or both.
             let bp = this.bp_response(&s, &req, &resp);
-            this.break_response.lock().remove(&s.id);
+            this.break_response.lock().remove(&(s.live.numbering(), s.id));
             let mut resp = resp;
             let mut rewritten: Option<Body> = None;
             if this.rewrite.response_needs_body(&req, &resp) && !is_variant(&s) {
@@ -2103,20 +2151,20 @@ impl Interceptor for Rules {
     }
 
     fn on_complete(&self, s: &SessionView) {
-        self.break_response.lock().remove(&s.id);
+        self.break_response.lock().remove(&(s.live.numbering(), s.id));
         // Calls to LLM APIs get their model, tokens and cost (parsed off the proxy's threads).
         let summary = s.live.summary();
         if crate::llm::api_of(&summary.method, &summary.full_url()).is_some()
             && let Some(core) = self.core()
         {
-            core.llm_mark_later(s.id);
+            core.llm_mark_later(s.live.numbering(), s.id);
         }
         // Exchanges with MCP servers get their method, tool and server.
         let hint = s.live.with_detail(crate::mcp_traffic::Hint::of);
         if crate::mcp_traffic::candidate(&summary.method, &summary.full_url(), hint)
             && let Some(core) = self.core()
         {
-            core.mcp_mark_later(s.id);
+            core.mcp_mark_later(s.live.numbering(), s.id);
         }
         if self.script_active() && self.script.has_complete_hook() {
             let d = s.live.detail();
@@ -2205,6 +2253,103 @@ pub fn import_farx(xml: &str) -> Result<AutoResponderState> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn breakpoint_core() -> (tempfile::TempDir, Arc<AppCore>) {
+        let dir = tempfile::tempdir().unwrap();
+        let core = AppCore::new(crate::Paths::at(dir.path().to_path_buf()), crate::logbuf::LogBuffer::new(100)).unwrap();
+        (dir, core)
+    }
+
+    fn session_view(core: &AppCore, url: &str) -> SessionView {
+        let live = core.capture().begin(SessionKind::Http, |d| d.request = head("GET", url));
+        SessionView { id: live.id, live, process: "test".into(), client_ip: "127.0.0.1".into() }
+    }
+
+    #[test]
+    fn clearing_breakpoints_aborts_old_waiters_without_touching_reused_ids() {
+        use std::task::{Context, Poll, Waker};
+        for phase in ["request", "response"] {
+            for cancel_old_future in [false, true] {
+                let (_dir, core) = breakpoint_core();
+                let rules = core.rules.clone().unwrap();
+                let mut cx = Context::from_waker(Waker::noop());
+                let old = session_view(&core, "https://phone.test/old");
+                let mut old_pause = Box::pin(rules.clone().pause(old.clone(), phase, "https://phone.test/old".into()));
+                assert!(old_pause.as_mut().poll(&mut cx).is_pending());
+                core.remove_all();
+                assert!(rules.paused().is_empty());
+                let current = session_view(&core, "https://desktop.test/new");
+                assert_eq!(old.id, current.id);
+                let mut current_pause = Box::pin(rules.clone().pause(current.clone(), phase, "https://desktop.test/new".into()));
+                assert!(current_pause.as_mut().poll(&mut cx).is_pending());
+                // Delay the old future's cleanup until the reused id is paused again.
+                if cancel_old_future {
+                    drop(old_pause);
+                } else {
+                    let Poll::Ready(resume) = old_pause.as_mut().poll(&mut cx) else { panic!("cleared breakpoint still waits") };
+                    assert_eq!(resume.action, "abort", "clearing must not send the old request");
+                }
+                let paused = rules.paused();
+                assert_eq!(paused.len(), 1);
+                assert_eq!(paused[0].url, "https://desktop.test/new");
+                let expected = if phase == "request" { SessionState::BreakpointRequest } else { SessionState::BreakpointResponse };
+                assert_eq!(core.capture().index.get(current.id).unwrap().state, expected);
+                assert!(current_pause.as_mut().poll(&mut cx).is_pending(), "old cleanup released the new request");
+                assert_eq!(rules.go_all(), 1);
+                let Poll::Ready(resume) = current_pause.as_mut().poll(&mut cx) else { panic!("new breakpoint did not resume") };
+                assert_eq!(resume.action, "continue");
+                core.shutdown();
+            }
+        }
+    }
+
+    #[test]
+    fn late_breakpoints_from_cleared_sessions_are_rejected() {
+        use std::task::{Context, Poll, Waker};
+        let (_dir, core) = breakpoint_core();
+        let rules = core.rules.clone().unwrap();
+        let old = session_view(&core, "https://phone.test/old");
+        core.remove_all();
+        let current = session_view(&core, "https://desktop.test/new");
+        assert_eq!(old.id, current.id);
+        let mut cx = Context::from_waker(Waker::noop());
+        for phase in ["request", "response"] {
+            let mut pause = Box::pin(rules.clone().pause(old.clone(), phase, "https://phone.test/old".into()));
+            let Poll::Ready(resume) = pause.as_mut().poll(&mut cx) else { panic!("a cleared request created a hidden breakpoint") };
+            assert_eq!(resume.action, "abort");
+        }
+        assert!(rules.paused().is_empty());
+        assert_eq!(core.capture().index.get(current.id).unwrap().host, "desktop.test");
+        core.shutdown();
+    }
+
+    #[test]
+    fn old_completion_cannot_remove_a_new_response_breakpoint() {
+        use std::task::{Context, Waker};
+        let (_dir, core) = breakpoint_core();
+        let rules = core.rules.clone().unwrap();
+        rules.set_autoresponder(AutoResponderState {
+            enabled: true,
+            rules: vec![Rule { match_: "*".into(), action: "*bpafter".into(), ..Default::default() }],
+            ..Default::default()
+        }, false).unwrap();
+        let mut cx = Context::from_waker(Waker::noop());
+        let old = session_view(&core, "https://phone.test/old");
+        assert!(rules.on_request(old.clone(), old.live.detail().request, None).as_mut().poll(&mut cx).is_ready());
+        core.remove_all();
+        let current = session_view(&core, "https://desktop.test/new");
+        assert_eq!(old.id, current.id);
+        let req = current.live.detail().request;
+        assert!(rules.on_request(current.clone(), req.clone(), None).as_mut().poll(&mut cx).is_ready());
+        let resp = ResponseHead { status: 200, ..Default::default() };
+        assert_eq!(rules.response_mode(&current, &req, &resp), Mode::Buffer);
+        rules.on_complete(&old);
+        assert_eq!(rules.response_mode(&current, &req, &resp), Mode::Buffer);
+        assert!(rules.on_response(old, resp.clone(), Body::empty()).as_mut().poll(&mut cx).is_ready());
+        assert_eq!(rules.response_mode(&current, &req, &resp), Mode::Buffer);
+        core.shutdown();
+    }
+
     fn head(m: &str, url: &str) -> RequestHead {
         RequestHead { method: m.into(), url: url.into(), version: HttpVersion::Http11, headers: Headers::new() }
     }

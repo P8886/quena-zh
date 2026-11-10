@@ -638,7 +638,9 @@ impl AppCore {
     pub fn remove_all(&self) {
         let cap = self.capture();
         cap.clear();
-        cap.reset_numbering();
+        if let Some(rules) = &self.rules {
+            rules.discard_cleared_breakpoints();
+        }
         self.emit("list", ListEvent { version: cap.index.version(), total: 0, count: 0 });
         // The report refers to session ids that restart now.
         self.diag_reset();
@@ -789,6 +791,9 @@ impl AppCore {
     pub fn switch_capture(self: &Arc<Self>, cap: Arc<Capture>) {
         self.install_plugin_decoders(&cap);
         let old = std::mem::replace(&mut *self.capture.write(), cap);
+        if let Some(rules) = &self.rules {
+            rules.discard_cleared_breakpoints();
+        }
         old.close(!self.settings.read().keep_captures);
         self.diag_reset();
         // A group or path of the old capture means nothing in the new one.

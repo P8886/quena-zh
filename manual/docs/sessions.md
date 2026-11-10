@@ -159,6 +159,11 @@ Marks and comments are saved in `.saz` archives, and both can be used in filters
 To clear immediately, turn off *Settings → General → Confirm before removing all
 sessions* and click *OK*. Quena remembers the choice across restarts.
 
+Clearing restarts session numbers at 1. Paused requests and responses that were removed
+are aborted, so no hidden breakpoint remains waiting for you. Other in-flight traffic
+continues, but its later updates do not restore cleared rows or change new sessions that
+reuse their numbers. Saved breakpoint rules and the automatic breakpoint mode stay set.
+
 The toolbar's **Remove** button also removes all *Images*, *Tunnels (CONNECT)*,
 *Non-200s*, or *Complete & Unmarked* sessions at once.
 

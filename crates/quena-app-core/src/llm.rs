@@ -1653,7 +1653,7 @@ impl AppCore {
 
     /// Mark a finished session that is an LLM call with its model, tokens and cost, later on
     /// a worker thread (a full queue drops it: marks are a help, not a record).
-    pub(crate) fn llm_mark_later(self: &Arc<Self>, id: SessionId) {
+    pub(crate) fn llm_mark_later(self: &Arc<Self>, numbering: u64, id: SessionId) {
         static QUEUE: std::sync::OnceLock<Option<std::sync::mpsc::SyncSender<(std::sync::Weak<AppCore>, u64, SessionId)>>> = std::sync::OnceLock::new();
         let queue = QUEUE.get_or_init(|| {
             let (tx, rx) = std::sync::mpsc::sync_channel::<(std::sync::Weak<AppCore>, u64, SessionId)>(1024);
@@ -1667,7 +1667,7 @@ impl AppCore {
             worker.ok().map(|_| tx)
         });
         if let Some(q) = queue {
-            let _ = q.try_send((Arc::downgrade(self), self.capture().numbering(), id));
+            let _ = q.try_send((Arc::downgrade(self), numbering, id));
         }
     }
 
@@ -1700,12 +1700,14 @@ impl AppCore {
         };
         // Still being written (bodies pending): change the live session, it persists itself.
         if let Some(live) = cap.live(id) {
-            live.update(set);
-        } else if !cap.update_detail(id, set) {
+            if live.numbering() == numbering {
+                live.update(set);
+            }
+        } else if !cap.update_detail_numbered(numbering, id, set) {
             // Removed meanwhile.
             return;
         }
-        if !hit {
+        if !hit && cap.numbering() == numbering {
             self.llm_cache_auto(id);
         }
     }

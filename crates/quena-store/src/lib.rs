@@ -60,6 +60,7 @@ struct FinishState {
 /// A session in flight (or any session opened for inspection).
 pub struct LiveSession {
     pub id: SessionId,
+    numbering: u64,
     detail: RwLock<SessionDetail>,
     request_body: RwLock<Body>,
     response_body: RwLock<Body>,
@@ -125,6 +126,11 @@ impl Drop for BodyHold {
 }
 
 impl LiveSession {
+    /// Numbering in which this session was created; unchanged when the capture is cleared.
+    pub fn numbering(&self) -> u64 {
+        self.numbering
+    }
+
     pub fn detail(&self) -> SessionDetail {
         let mut d = self.detail.read().clone();
         d.request_body = self.request_body.read().to_ref();
@@ -174,7 +180,10 @@ impl LiveSession {
             d.summary.clone()
         };
         if let Some(c) = self.capture.upgrade() {
-            c.index.upsert(summary);
+            let _edits = c.edits.lock();
+            if c.contains_live(self) {
+                c.index.upsert(summary);
+            }
         }
     }
 
@@ -191,10 +200,13 @@ impl LiveSession {
         };
         if changed {
             if let Some(c) = self.capture.upgrade() {
-                c.index.update(self.id, |s| {
-                    s.request_body_len = req;
-                    s.response_body_len = resp;
-                });
+                let _edits = c.edits.lock();
+                if c.contains_live(self) {
+                    c.index.update(self.id, |s| {
+                        s.request_body_len = req;
+                        s.response_body_len = resp;
+                    });
+                }
             }
         }
         changed
@@ -251,7 +263,7 @@ impl LiveSession {
 
     fn persist(&self) {
         if let Some(c) = self.capture.upgrade() {
-            c.finish(self.id);
+            c.finish(self);
         }
     }
 }
@@ -316,8 +328,9 @@ pub struct Capture {
     temporary: bool,
     /// Sessions waiting for their body recordings (see [`LiveSession::finish`]).
     deferred: Mutex<Option<std::sync::mpsc::Sender<(Arc<LiveSession>, std::time::Instant)>>>,
-    /// Held while finished sessions are changed or removed, so a change never brings back a
-    /// session removed meanwhile.
+    /// Serializes publishing, finishing and removal with id allocation and numbering resets.
+    /// The live table's lock is released before accessing the index: filters read live details
+    /// while holding the index, so holding both locks would deadlock.
     edits: Mutex<()>,
 }
 
@@ -412,8 +425,8 @@ impl Capture {
         self.next_id.fetch_add(1, Ordering::Relaxed)
     }
 
-    /// Reset numbering (restarts at 1 after clearing).
-    pub fn reset_numbering(&self) {
+    /// Reset numbering. Called by `clear` while session creation is excluded.
+    fn reset_numbering(&self) {
         self.next_id.store(1, Ordering::Relaxed);
         self.numbering.store(new_numbering(), Ordering::Relaxed);
     }
@@ -425,6 +438,7 @@ impl Capture {
 
     /// Start a new session; it is visible in the list immediately.
     pub fn begin(self: &Arc<Self>, kind: SessionKind, init: impl FnOnce(&mut SessionDetail)) -> Arc<LiveSession> {
+        let _edits = self.edits.lock();
         let id = self.next_id();
         let mut d = SessionDetail::default();
         d.summary.id = id;
@@ -434,6 +448,7 @@ impl Capture {
         d.refresh_summary();
         let live = Arc::new(LiveSession {
             id,
+            numbering: self.numbering(),
             detail: RwLock::new(d.clone()),
             request_body: RwLock::new(Body::empty()),
             response_body: RwLock::new(Body::empty()),
@@ -447,6 +462,7 @@ impl Capture {
 
     /// Insert a complete session (import, composer result…).
     pub fn insert(self: &Arc<Self>, mut d: SessionDetail, req: Body, resp: Body) -> SessionId {
+        let _edits = self.edits.lock();
         let id = self.next_id();
         d.summary.id = id;
         if let Some(label) = IMPORT_LABEL.with(|l| l.borrow().clone()) {
@@ -474,6 +490,10 @@ impl Capture {
 
     pub fn live(&self, id: SessionId) -> Option<Arc<LiveSession>> {
         self.live.read().get(&id).cloned()
+    }
+
+    fn contains_live(&self, session: &LiveSession) -> bool {
+        self.live.read().get(&session.id).is_some_and(|live| std::ptr::eq(live.as_ref(), session))
     }
 
     pub fn live_sessions(&self) -> Vec<Arc<LiveSession>> {
@@ -505,10 +525,14 @@ impl Capture {
         }
     }
 
-    fn finish(&self, id: SessionId) {
+    fn finish(&self, live: &LiveSession) {
         // Not at the same time as `remove`: a session removed meanwhile stays removed.
         let _edits = self.edits.lock();
-        let Some(live) = self.live.read().get(&id).cloned() else { return };
+        // A cleared id may already belong to another request. A late recording guard or
+        // finish deadline must finish only the original object, never the replacement.
+        if !self.contains_live(live) {
+            return;
+        }
         let mut d = live.detail();
         d.refresh_summary();
         d.summary.request_body_len = live.request_body().wire_len();
@@ -517,7 +541,7 @@ impl Capture {
         let d = Arc::new(d);
         // In the cache before it leaves the live table: `detail` always finds the session.
         self.cache.lock().put(d.clone());
-        self.live.write().remove(&id);
+        self.live.write().remove(&live.id);
         self.db.put(d);
     }
 
@@ -595,8 +619,13 @@ impl Capture {
 
     /// Persist UI-level changes (mark, comment) of a finished session.
     pub fn update_summary(&self, id: SessionId, f: impl Fn(&mut SessionSummary)) {
+        let numbering = self.numbering();
         if let Some(l) = self.live(id) {
             l.update(|d| f(&mut d.summary));
+            return;
+        }
+        let _edits = self.edits.lock();
+        if self.numbering() != numbering || self.index.get(id).is_none() {
             return;
         }
         self.index.update(id, &f);
@@ -619,8 +648,13 @@ impl Capture {
 
     /// Change a finished session that is still there (else `false`).
     pub fn update_detail(&self, id: SessionId, f: impl FnOnce(&mut SessionDetail)) -> bool {
+        self.update_detail_numbered(self.numbering(), id, f)
+    }
+
+    /// Apply a delayed edit only to the numbering for which it was prepared.
+    pub fn update_detail_numbered(&self, numbering: u64, id: SessionId, f: impl FnOnce(&mut SessionDetail)) -> bool {
         let _edits = self.edits.lock();
-        if self.index.get(id).is_none() {
+        if self.numbering() != numbering || self.index.get(id).is_none() {
             return false;
         }
         let Some(mut d) = self.detail(id) else { return false };
@@ -660,9 +694,10 @@ impl Capture {
         }
     }
 
-    /// Remove everything (keeps in-flight sessions running but hidden).
+    /// Remove everything and restart numbering (keeps in-flight sessions running but hidden).
     pub fn clear(&self) {
         let _edits = self.edits.lock();
+        self.reset_numbering();
         self.index.clear();
         self.cache.lock().clear();
         let live_ids: Vec<SessionId> = self.live.read().keys().copied().collect();
@@ -771,6 +806,142 @@ pub fn find_recoverable(captures_root: &Path) -> Vec<RecoverableCapture> {
 mod tests {
     use super::*;
     use quena_model::{RequestHead, ResponseHead};
+
+    #[test]
+    fn removed_in_flight_sessions_stay_removed() {
+        for clear_all in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let cap = Capture::open(dir.path().join("cap"), BodyConfig::default(), true).unwrap();
+            let old = cap.begin(SessionKind::Http, |d| {
+                d.request.url = "https://phone.test/old".into();
+            });
+            if clear_all {
+                cap.clear();
+            } else {
+                cap.remove(&[old.id].into_iter().collect());
+            }
+            old.update(|d| d.summary.state = SessionState::BreakpointResponse);
+            old.set_response_body(cap.bodies.store_bytes(b"late response"));
+            old.refresh_sizes();
+            old.finish();
+            cap.flush();
+            assert_eq!(cap.session_count(), 0, "a removed network task restored its row");
+            assert!(cap.detail(old.id).is_none());
+            assert!(cap.db.get(old.id).unwrap().is_none());
+        }
+    }
+
+    #[test]
+    fn late_callbacks_cannot_change_a_session_with_a_reused_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cap");
+        {
+            let cap = Capture::open(&path, BodyConfig::default(), true).unwrap();
+            let old = cap.begin(SessionKind::Http, |d| {
+                d.request.url = "https://phone.test/old".into();
+            });
+            let hold = old.hold();
+            old.finish();
+            cap.clear();
+            let current = cap.begin(SessionKind::Http, |d| {
+                d.request.url = "https://desktop.test/new".into();
+            });
+            assert_eq!(old.id, current.id);
+            assert_ne!(old.numbering(), current.numbering());
+            assert_eq!(current.numbering(), cap.numbering());
+            old.update(|d| {
+                d.summary.state = SessionState::BreakpointResponse;
+                d.response = Some(ResponseHead { status: 503, ..Default::default() });
+            });
+            assert_eq!(cap.index.get(current.id).unwrap().host, "desktop.test");
+            old.set_response_body(cap.bodies.store_bytes(b"late response"));
+            assert!(old.refresh_sizes());
+            assert_eq!(cap.index.get(current.id).unwrap().response_body_len, 0);
+            // Both the finish deadline and a late recording guard used to finish the new row.
+            old.force_finish();
+            drop(hold);
+            assert!(Arc::ptr_eq(&cap.live(current.id).unwrap(), &current));
+            current.set_response_body(cap.bodies.store_bytes(b"new response"));
+            current.update(|d| d.summary.state = SessionState::Done);
+            current.finish();
+            old.update(|d| d.summary.state = SessionState::Aborted);
+            let d = cap.detail(current.id).unwrap();
+            assert_eq!(d.request.url, "https://desktop.test/new");
+            assert_eq!(d.summary.host, "desktop.test");
+            assert_eq!(d.summary.state, SessionState::Done);
+            cap.flush();
+        }
+        let cap = Capture::open(&path, BodyConfig::default(), true).unwrap();
+        let d = cap.detail(1).unwrap();
+        assert_eq!(d.summary.host, "desktop.test");
+        assert_eq!(d.request.url, "https://desktop.test/new");
+        assert_eq!(cap.bodies_of(1).unwrap().1.read_range(0, 100).unwrap(), b"new response");
+    }
+
+    #[test]
+    fn dropping_a_removed_request_cannot_abort_a_new_request() {
+        let dir = tempfile::tempdir().unwrap();
+        let cap = Capture::open(dir.path().join("cap"), BodyConfig::default(), true).unwrap();
+        let old = cap.begin(SessionKind::Http, |d| d.request.url = "http://phone.test/old".into());
+        let guard = old.abort_on_drop("client disconnected");
+        cap.clear();
+        let current = cap.begin(SessionKind::Http, |d| d.request.url = "http://desktop.test/new".into());
+        assert_eq!(old.id, current.id);
+        drop(guard);
+        assert!(Arc::ptr_eq(&cap.live(current.id).unwrap(), &current));
+        assert_eq!(cap.index.get(current.id).unwrap().host, "desktop.test");
+        assert!(cap.detail(current.id).unwrap().error.is_none());
+    }
+
+    #[test]
+    fn clear_is_atomic_with_session_creation_and_numbering() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+        let dir = tempfile::tempdir().unwrap();
+        let cap = Capture::open(dir.path().join("cap"), BodyConfig::default(), true).unwrap();
+        let (started, init_started) = mpsc::channel();
+        let (release, init_release) = mpsc::channel();
+        let (cleared, clear_done) = mpsc::channel();
+        std::thread::scope(|scope| {
+            let opening = cap.clone();
+            let creating = scope.spawn(move || opening.begin(SessionKind::Http, |d| {
+                started.send(()).unwrap();
+                init_release.recv().unwrap();
+                d.request.url = "http://phone.test/old".into();
+            }));
+            init_started.recv_timeout(Duration::from_secs(5)).unwrap();
+            let clearing = scope.spawn(|| {
+                cap.clear();
+                cleared.send(()).unwrap();
+            });
+            // Let clear race an initializer which has already reserved its id. The clear
+            // must wait for creation, then remove it, rather than leave half an old session.
+            let _ = clear_done.recv_timeout(Duration::from_millis(100));
+            release.send(()).unwrap();
+            creating.join().unwrap();
+            clearing.join().unwrap();
+        });
+        assert_eq!(cap.session_count(), 0);
+        let current = cap.begin(SessionKind::Http, |d| d.request.url = "http://desktop.test/new".into());
+        assert_eq!(current.id, 1);
+        assert_eq!(current.numbering(), cap.numbering());
+    }
+
+    #[test]
+    fn delayed_edits_cannot_change_a_reused_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let cap = Capture::open(dir.path().join("cap"), BodyConfig::default(), true).unwrap();
+        let numbering = cap.numbering();
+        let old = cap.begin(SessionKind::Http, |_| {});
+        cap.clear();
+        let current = cap.begin(SessionKind::Http, |d| d.request.url = "http://desktop.test/new".into());
+        assert_eq!(old.id, current.id);
+        current.update(|d| d.summary.state = SessionState::Done);
+        current.finish();
+        assert!(!cap.update_detail_numbered(numbering, current.id, |_| panic!("an old worker edited the new request")));
+        assert!(cap.update_detail_numbered(current.numbering(), current.id, |d| d.summary.comment = "current edit".into()));
+        assert_eq!(cap.detail(current.id).unwrap().summary.comment, "current edit");
+    }
 
     #[test]
     fn finish_waits_for_pending_body_recordings() {

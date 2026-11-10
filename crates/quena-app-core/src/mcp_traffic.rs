@@ -474,7 +474,7 @@ impl AppCore {
 
     /// Mark a finished session that may be an MCP exchange, later on a worker thread (a full
     /// queue drops it: marks are a help, not a record).
-    pub(crate) fn mcp_mark_later(self: &std::sync::Arc<Self>, id: SessionId) {
+    pub(crate) fn mcp_mark_later(self: &std::sync::Arc<Self>, numbering: u64, id: SessionId) {
         type Job = (std::sync::Weak<AppCore>, u64, SessionId);
         static QUEUE: std::sync::OnceLock<Option<std::sync::mpsc::SyncSender<Job>>> = std::sync::OnceLock::new();
         let queue = QUEUE.get_or_init(|| {
@@ -489,7 +489,7 @@ impl AppCore {
             worker.ok().map(|_| tx)
         });
         if let Some(q) = queue {
-            let _ = q.try_send((std::sync::Arc::downgrade(self), self.capture().numbering(), id));
+            let _ = q.try_send((std::sync::Arc::downgrade(self), numbering, id));
         }
     }
 
@@ -512,9 +512,11 @@ impl AppCore {
             det.extra_flags.extend(flags.iter().cloned());
         };
         if let Some(live) = cap.live(id) {
-            live.update(set);
+            if live.numbering() == numbering {
+                live.update(set);
+            }
         } else {
-            cap.update_detail(id, set);
+            cap.update_detail_numbered(numbering, id, set);
         }
         self.mcp_names.lock().marks += 1;
     }

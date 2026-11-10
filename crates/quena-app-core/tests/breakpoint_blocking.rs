@@ -163,6 +163,72 @@ fn http_breakpoints_hold_requests_and_response_headers_until_resumed() {
 }
 
 #[test]
+fn clearing_paused_traffic_aborts_old_requests_and_preserves_new_breakpoints() {
+    let dir = tempfile::tempdir().unwrap();
+    let (port, requests) = origin(dir.path(), false);
+    std::fs::write(
+        dir.path().join("settings.json"),
+        r#"{"proxy":{"port":0,"actAsSystemProxy":false,"captureOnStartup":false,"useSystemUpstream":false}}"#,
+    ).unwrap();
+    let core = AppCore::new(Paths::at(dir.path().to_path_buf()), quena_app_core::logbuf::LogBuffer::new(100)).unwrap();
+    let engine = quena_app_core::engine::ProxyEngine::new(&core).unwrap();
+    core.set_proxy_engine(engine.clone());
+    core.start_capture().unwrap();
+    let addr = engine.proxy.listen_addrs().into_iter().find(|a| a.is_ipv4()).unwrap();
+    let rules = core.rules.clone().unwrap();
+    let send = |path: &str| {
+        Command::new("curl")
+            .args(["-sS", "--fail", "--noproxy", "", "--max-time", "10", "--proxy", &format!("http://{addr}"), &format!("http://localhost:{port}{path}")])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn().unwrap()
+    };
+    for phase in ["request", "response"] {
+        rules.set_breakpoints(BreakpointState { all_requests: phase == "request", all_responses: phase == "response", ..Default::default() });
+        let old_client = send("/cleared");
+        let old_id = wait_pause(&rules, phase, "/cleared");
+        let old = core.capture().live(old_id).unwrap();
+        if phase == "response" {
+            assert_eq!(requests.recv_timeout(Duration::from_secs(5)).unwrap(), "/cleared");
+        }
+        core.remove_all();
+        let current_client = send("/current");
+        let current_id = wait_pause(&rules, phase, "/current");
+        assert_eq!(old_id, current_id);
+        let old_output = old_client.wait_with_output().unwrap();
+        // Quena's normal Abort action answers 502; curl must treat it as an HTTP error.
+        assert_eq!(old_output.status.code(), Some(22), "{}", String::from_utf8_lossy(&old_output.stderr));
+        assert!(String::from_utf8_lossy(&old_output.stderr).contains("502"));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !old.state().is_final() {
+            assert!(Instant::now() < deadline, "old request stayed in flight after its breakpoint was cleared");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(rules.paused().len(), 1);
+        assert!(rules.paused()[0].url.ends_with("/current"));
+        if phase == "response" {
+            assert_eq!(requests.recv_timeout(Duration::from_secs(5)).unwrap(), "/current");
+        } else {
+            assert!(matches!(requests.try_recv(), Err(mpsc::TryRecvError::Empty)), "a request reached the server before resume");
+        }
+        assert_eq!(rules.go_all(), 1);
+        let output = current_client.wait_with_output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        assert_eq!(output.stdout, b"/current");
+        if phase == "request" {
+            assert_eq!(requests.recv_timeout(Duration::from_secs(5)).unwrap(), "/current");
+        }
+        let cap = core.capture();
+        assert_eq!(cap.session_count(), 1, "a cleared row came back");
+        let detail = cap.detail(current_id).unwrap();
+        assert!(detail.request.url.ends_with("/current"));
+        assert_eq!(detail.summary.full_url(), detail.request.url);
+        core.remove_all();
+    }
+    core.shutdown();
+}
+
+#[test]
 fn decrypted_https_breakpoints_hold_on_existing_tunnels_too() {
     check_blocking(true, false);
 }

@@ -28,6 +28,9 @@ contain breaking changes (settings, file formats, plugin API).
   peak concurrency, throughput and request durations; each batch can be stopped separately.
 
 ### Fixed
+- Clearing sessions isolates late network updates, body-recording completion and background
+  analysis from reused session numbers. Removed rows stay removed; cleared breakpoints are
+  aborted, and their cleanup cannot release or remove a new request's breakpoint.
 - Changing the system proxy preference while the listener is running now attaches or
   restores the OS proxy immediately, without interrupting explicitly configured clients.
   Failed changes are reported and can be retried by saving again.
