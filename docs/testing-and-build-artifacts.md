@@ -1,0 +1,187 @@
+# 测试结果与构建产物记录
+
+记录日期：2026-11-10（北京时间）。
+
+测试完成后保留测试源码、命令、结果和版本记录。生成的测试可执行文件、
+临时数据和废弃安装包中间文件在确认未被使用后清理；编译依赖按需复用。
+
+## 本次磁盘清理
+
+用户反馈项目目录约占 40.55 GB。排查时另一个任务仍在构建，实测逻辑大小
+约 40.64 GB；清理后约 4.32 GB。磁盘实际可用空间增加约 29.5 GB。
+以下 GB 使用十进制，GiB 使用二进制。
+
+| 产物 | 本次处理 | 说明 |
+| --- | --- | --- |
+| `target/debug/` | 已清理，Cargo 汇总 27.1 GiB | 旧开发和测试产物，包含完整调试信息、增量缓存和多份依赖变体 |
+| `target/local/incremental/` | 已清理，约 6.14 GB | 为加速局部重编译保存的状态；后续已关闭生成 |
+| 7 个 `plugins/*/target/` | 已清理，约 1.07 GB | 独立插件项目的编译目录；保留源码和 `plugins/dist/` 中的打包资源 |
+| `target/local/deps/` 中的 16 个测试可执行文件 | 已清理，约 168 MB | 保留测试源码和可复用的库，测试需要时可重新编译可执行文件 |
+| 中断打包遗留的 `rw.*.dmg` | 已清理，约 100 MB | 已确认未挂载且没有进程占用 |
+| `target/local/deps/` 和 `build/` | 保留，分别约 3.40 GB 和 0.55 GB | 可复用的 Rust 依赖、链接库、构建脚本和原生库编译结果 |
+| 当前应用和安装包 | 保留 | `target/local/bundle/macos/Quena.app` 和 `target/local/bundle/dmg/Quena_0.2.1_aarch64.dmg` |
+| 源码、锁文件、前端依赖和插件资源 | 保留 | 继续开发和打包所需；本次未清理安装应用和抓包数据 |
+
+逻辑大小会重复计入硬链接文件。`du` 实际分配空间和磁盘可用空间的变化，
+因此小于逻辑大小的减少量；不能将目录减少约 36 GB 直接当作磁盘释放量。
+
+旧开发和插件目录使用 `cargo clean` 清理；剩余增量缓存、测试文件在持有
+Cargo 构建锁后清理。处理临时 DMG 前还核对了挂载状态和文件占用。
+
+## 已完成的功能测试
+
+以下结果来自关联聊天“排查安装后无法打开”中的现有执行记录，
+本次磁盘清理没有重新运行整套功能测试。
+
+- 关联聊天 ID：`01a1b392-8f95-7083-b61a-d319c9bf9942`。
+- 源码基准提交：`e81e6938b797710cb427c50e0e6d21256d5e1d11`，另含当时未提交的修复。
+- 功能测试时工作区 diff 的 SHA-256：`c1436fe2076204e4cf7008b71affbea7226ecbe54e553586eab78ffe5c658d37`。
+- 记录来源：该任务的命令输出及 r12 构建来源记录；其中标注运行时代码在测试后未变化。
+
+| 验证项 | 命令或范围 | 已记录结果 |
+| --- | --- | --- |
+| 正文转发单元测试 | `cargo test -p quena-proxy --profile local --locked --offline --lib body::tests` | 8 项通过，0 失败；属于下方完整代理测试的子集 |
+| 代理完整测试 | `cargo test -p quena-proxy --profile local --locked --offline` | 62 项通过 |
+| 响应协议场景 | HTTP、HTTPS/HTTP/1.1、HTTPS/HTTP/2，共 21 个场景 | 已通过，包含空正文、HEAD、204、304 等完成状态判断 |
+| 旧代码回归复现 | `cargo test -p quena-proxy --profile local --locked --offline --test e2e complete_and_bodyless_responses_are_not_marked_aborted -- --exact` | 旧代码按预期失败：正常 204 被标为 `Aborted`，预期为 `Done`；执行记录确认随后恢复修复代码 |
+
+正文相关测试覆盖：空正文正常结束、已知长度收齐后没有再次轮询 EOF、
+未知长度在真实 EOF 结束、提前断开仍标为中断、转发尾部字段，以及收齐正文后
+尾部读取错误仍报错。保留这些测试源码用于后续回归。
+
+## 本次配置验证
+
+| 检查 | 结果 |
+| --- | --- |
+| `cargo metadata --format-version 1 --no-deps --locked --offline` | 通过，解析 18 个工作区包，输出目录仍为本项目 `target/` |
+| `git diff --check -- Cargo.toml CONTRIBUTING.md` | 通过 |
+| 清理后的目录核对 | 旧 `target/debug/`、增量缓存和插件编译目录已移除，当前应用和安装包仍存在 |
+| 生成目录体积 | 当前 `target/` 约 4.1 GB，低于本地 6 GiB 管理预算 |
+
+`Cargo.toml` 已将 `local` 和 `dev` 的增量编译关闭，并将 `dev` 的调试信息设为
+`0`；默认测试配置继承 `dev`。后续优先复用已有的 `local` 依赖运行针对性测试，
+避免同时保留多份完整依赖图。清理旧缓存后，首次需要的测试产物会按需重建。
+
+## 后续保留规则
+
+1. 保留源码、测试源码、锁文件、依赖缓存、当前可复用的编译库和当前交付包。
+2. 测试结束后更新本文件中的日期、源码版本、命令、结果、失败原因和必要证据。
+3. 清理用完的测试可执行文件、临时测试数据、失效增量缓存和中断打包文件。
+4. 构建完成后检查 `target/` 体积，以 6 GiB 为本地管理预算；超过时检查并清理过期生成物。
+   这项规则记录在 `AGENTS.md`，属于开发工作流程，不是后台定时清理程序。
+5. 清理时使用 Cargo 清理命令或构建锁，确认打包文件未被使用，保留必要编译依赖。
+6. 仅在需要定位原生崩溃时临时启用调试信息，完成后清理该配置的输出。
+
+
+## 宽布局与原始报文分隔条（2026-11-10）
+
+新增宽布局：会话列表在上方，下方请求、响应并排。设置、查看菜单和命令面板
+均可选择；列表高度、请求与响应宽度以及原始视图中各自的头部／正文高度会保存。
+切换布局保留选中的会话和未发送的编辑内容。
+
+- 基准提交：`e81e6938b797710cb427c50e0e6d21256d5e1d11`，另含当前工作区未提交内容。
+- 工作区 diff SHA-256（不含本记录文件）：`317947f959f83c3821809acf9c8a52a93180e411112f1895226940099374d34c`。
+- 相关文件的 SHA-256：`/tmp/quena-wide-layout-source-20261110.json`，包含新拆出的
+  `app/ui/src/components/Splitter.tsx`；单独记录该新文件，避免仅对比 tracked diff 时遗漏。
+
+| 检查 | 结果 |
+| --- | --- |
+| `npm test --prefix app/ui -- src/store.test.ts src/actions.test.ts src/i18n/i18n.test.ts` | 33 项通过，覆盖布局恢复、旧设置兼容、布局切换、编辑内容保留和多语言完整性 |
+| `npm run typecheck --prefix app/ui` | 通过 |
+| `npm run build --prefix app/ui` | 通过 |
+| `cargo check -p quena-app --profile local --locked --offline` | 通过，原生菜单与翻译编译检查完成 |
+| 浏览器中的实际前端组件，示例请求及模拟 Tauri IPC | 列表在上、请求在左、响应在右；设置切换、外层两个分隔条、左右各自的原始头部／正文分隔条均已操作验证 |
+| 最小窗口 `900 × 560` | 页面无整体溢出，两个详情面板仍并排；原始视图头部约 71/68 px、正文约 119/121 px，均保留可用空间 |
+| 完整重载后恢复 | 宽布局、列表高度及两侧独立的原始视图比例恢复成功；请求约 0.374706，响应约 0.360232 |
+| 构建目录 | `target/` 约 4.2 GiB，低于 6 GiB 预算；继续保留可复用依赖 |
+
+日志：`/tmp/quena-wide-layout-tests.log`、`/tmp/quena-wide-ui-build.log`、
+`/tmp/quena-wide-native-check.log`。界面尺寸与拖动结果：
+`/tmp/quena-wide-layout-ui-checks.json`；截图：
+`/tmp/quena-wide-layout-20261110.png`。
+
+开发页在 16:08:40 的热更新历史日志中曾出现 React 更新深度错误；随后完整重载，
+后续切换、拖动和恢复检查期间没有新增同类日志。最终截图取自重载后的页面。
+
+本次未生成新的桌面安装包。保留正在供用户查看的预览实例与其临时脚本
+`/tmp/quena-wide-preview-20261110.mjs`；本次 Rust 检查没有生成独立测试可执行文件。
+
+
+## 会话类型图标与 Fiddler 分类对照（2026-11-10）
+
+会话列表固定标记栏增加类型／状态图标，复用 Canvas 绘制，最多缓存 36 个
+`Path2D`，不为每条抓包记录建立 DOM 节点或发起资源请求。标记栏由 22 px
+加宽为 30 px，为图标右侧与会话编号留出间距。错误状态条、用户标记条保留。
+断点暂停时仅显示红色（请求）或黄色（响应）圆点；放行后恢复图标，历史断点
+标志不影响显示。F2 解锁后的开锁图标会随编辑状态更新。
+
+以用户提供的 `gabrielxvx/zh-fiddler` 仓库内 Fiddler 程序反编译结果核对，
+分类入口为 `frmViewer.method_2`、`updateSession`、F2 解锁处理与隧道握手解析。
+本次只参考分类逻辑，图形使用与现有 Lucide 风格一致的矢量线条。
+
+| Fiddler 分类／原图标编号 | 当前处理 |
+| --- | --- |
+| 普通请求 0/4，POST 32 | 普通 HTTP 图标；未知响应类型的 POST 使用提交图标，已知 JSON 等类型仍保留其类型图标 |
+| 请求／响应断点 1/3 | 按用户要求以红／黄圆点代替类型图标 |
+| 接收／发送响应 2 | 接收响应图标；等待响应使用时钟图标 |
+| 图片 5、脚本 6、XML 7、HTML 8、CSS 9 | 均已覆盖；SVG 优先归为图片，XHTML 归为 HTML |
+| 重定向 10 | 301/302/303/307/308 均已覆盖 |
+| 304 缓存 11、206 分段 37 | 均已覆盖，并优先于 MIME 类型 |
+| HTTP 错误 12、中断 14、401/403/407 认证 15 | 均已覆盖；中断与已收到的 HTTP 状态码分别显示 |
+| 204/HEAD/OPTIONS 16 | 分别显示无正文、HEAD、OPTIONS 图标；补充 205 无正文 |
+| CONNECT 13、WebSocket 34、SSE/RPC 39 | 均有对应图标；RPC 按 RPC_IN_DATA/RPC_OUT_DATA 方法识别 |
+| 音频 28、视频 27、字体 29、JSON 33 | 均已覆盖；JSON 支持 +json、NDJSON，字体支持 WOFF/WOFF2 等 |
+| Flash 30、Silverlight 31 | 仅提供类型图标识别，不增加执行运行时 |
+| F2 解锁编辑 36 | 开锁图标；断点暂停的圆点仍优先 |
+| 未解密隧道握手中识别 HTTP/2 40、SPDY 38 | 暂未细分；Quena 当前会话摘要没有对应握手识别数据，统一显示 CONNECT 隧道，不按 URL 或请求版本猜测 |
+| Quena 补充 | gRPC、Protobuf、表单、PDF、压缩归档、纯文本、二进制类型 |
+
+只在缺少 Content-Type 时由 URL 路径后缀推测；查询参数、实际已声明的 MIME、
+错误与断点状态均优先，不因 URL 含 `image.png` 等参数而误分类。悬停提示提供
+中、英、德文本，并标明 URL 推测。
+
+- 基准提交：`e81e6938b797710cb427c50e0e6d21256d5e1d11`，另含当前未提交更改。
+- 工作区 diff SHA-256（不含本记录）：`0343fda0c9bd1e71dc89a4778b20e3aa8ef36299a56eadd815994293257dfee4`。
+- 相关文件／反编译来源指纹：`/tmp/quena-session-icons-source-20261110.json`。
+
+| 检查 | 结果 |
+| --- | --- |
+| `npm test --prefix app/ui -- src/grid/sessionIcon.test.ts src/grid/style.test.ts src/i18n/i18n.test.ts` | 82 项通过，包含 MIME 与扩展名优先级、错误/断点/解锁优先级、恢复、未知类型和翻译完整性 |
+| `npm run typecheck --prefix app/ui` | 通过 |
+| `npm run build --prefix app/ui` | 通过；最终编译包含加宽后的标记栏及补齐的状态图标 |
+| 浏览器预览 | 37 条模拟会话，已检查深色／浅色、类型与状态图标、独立断点圆点、30 px 标记栏以及中文悬停提示 |
+| 构建目录 | `target/` 约 4.2 GiB，低于 6 GiB；此次前端检查未生成独立 Rust 测试可执行文件 |
+
+日志：`/tmp/quena-session-icons-tests.log`、`/tmp/quena-session-icons-build.log`。
+截图：`/tmp/quena-session-icons-20261110.png`、
+`/tmp/quena-session-icons-light-20261110.png`。运行中的临时预览使用
+`/tmp/quena-session-icons-preview-20261110.mjs`，保留供用户查看；示例通过模拟 IPC
+提供，不连接真实抓包数据。该预览只用于会话列表／详情布局，其他功能的模拟
+返回并不完整（例如智能体工具报告曾因模拟数据不全触发预览错误）。
+本次未打包或替换已安装应用。
+
+## 按功能拆分提交前的回归验证（2026-11-10）
+
+本轮在拆分提交前重新运行前端测试及核心、存储、代理、TLS 测试。
+运行时代码最终归档至 `b4e87c9f6fd4e38cb0d6a59f12836e6d674c983b`；
+测试时已使用本次提交中的紧凑构建配置。拆分暂存区未修改工作区源文件。
+
+| 检查 | 命令 | 结果 |
+| --- | --- | --- |
+| 前端完整测试 | `npm test --prefix app/ui` | 30 个测试文件、225 项通过，0 失败 |
+| Rust 相关工作区测试 | `cargo test -p quena-app-core -p quena-store -p quena-proxy -p quena-tls --profile local --locked --offline` | 374 项通过，0 失败，4 项按原配置忽略 |
+
+Rust 命令使用现有工具链和依赖缓存：`CARGO_HOME=/tmp/quena-cargo`、
+`RUSTUP_HOME=/tmp/quena-rustup`，并将 `/tmp/quena-cargo/bin` 加入 `PATH`。
+测试包含真实断点阻塞与规则、TLS CBC 兼容、清空会话隔离及正文完成状态回归。
+忽略项分别需要真实 AI 智能体运行、公开旧 TLS 域名、真实 WireMock 环境，
+以及显式执行的性能计时测试；这些结果不表示对应外部场景已在本轮验证。
+
+日志：`/tmp/quena-precommit-ui-tests.log`、
+`/tmp/quena-precommit-rust-tests.log`。
+
+测试后持有 `target/local/.cargo-lock` 的排他锁，仅清理本次 Rust 日志列出的
+46 个独立测试可执行文件；逐个用 `lsof` 确认未被使用，共删除
+734,953,152 字节（约 701 MiB），没有因占用而跳过的文件。
+清理记录：`/tmp/quena-precommit-test-cleanup.json`。
+`target/` 清理后约 4.3 GiB，低于 6 GiB 预算；保留可复用依赖和交付包。

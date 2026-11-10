@@ -24,6 +24,17 @@ npm exec --prefix app/ui -- tauri build -- --profile local  # optimized exe with
 Requirements: Rust 1.95+, Node.js 20.19+ (or 22.12+) and the
 [Tauri 2 prerequisites](https://tauri.app/start/prerequisites/) for your platform.
 
+Local builds keep incremental compilation disabled; development builds and tests
+also omit debug information to keep the native dependency graph's disk use small.
+Cargo still reuses compiled dependencies in `target/`. When the `local` profile is
+already built, use `cargo test --profile local …` for focused checks to reuse it
+instead of compiling another copy of the dependency graph in `target/debug`.
+For a native debugger, enable debug information for that run with
+`CARGO_PROFILE_DEV_DEBUG=1` and clean that profile afterwards with
+`cargo clean --profile dev`.
+See [test results and build artifacts](docs/testing-and-build-artifacts.md) for
+the local validation record and artifact retention rules.
+
 On Linux (Debian/Ubuntu) the system packages are:
 
 ```bash
