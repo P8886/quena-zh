@@ -7,6 +7,7 @@ use crate::util::{HOP_BY_HOP, title_case};
 use crate::{ProxyConfig, Shared, host_matches};
 use bytes::Bytes;
 use http::{HeaderName, HeaderValue, Request, Response, StatusCode, Version};
+use http_body::Body as _;
 use http_body_util::BodyExt;
 use hyper::body::Incoming;
 use hyper_util::client::legacy::Client;
@@ -464,7 +465,8 @@ pub async fn handle(ctx: Arc<ConnCtx>, mut req: Request<Incoming>) -> Result<Res
                 l2.update(|d| d.timers.client_done_request = Some(if last > 0 { last } else { now_us() }));
             }),
         );
-        Some(Tee::new(incoming, shared.recorder.clone(), key, times).boxed())
+        let expected = incoming.size_hint().exact();
+        Some(Tee::new(incoming, shared.recorder.clone(), key, times, expected).boxed())
     } else {
         None
     };
@@ -763,6 +765,17 @@ async fn deliver_response(
     let cfg = shared.cfg();
     let hooks = shared.hooks();
     let (mut parts, incoming) = resp.into_parts();
+    // HEAD and 304 may advertise the size of a representation without sending it.
+    // Use upstream framing before hooks can change headers on the outgoing response.
+    let expected = if req_head.method.eq_ignore_ascii_case("HEAD")
+        || parts.status.is_informational()
+        || parts.status == StatusCode::NO_CONTENT
+        || parts.status == StatusCode::NOT_MODIFIED
+    {
+        Some(0)
+    } else {
+        incoming.size_hint().exact()
+    };
     let mut resp_head = live.detail().response.unwrap_or_default();
     // Head-only script hook — runs in both streaming and buffering modes, but only
     // when a script is actually active (avoids per-response clones otherwise).
@@ -881,7 +894,6 @@ async fn deliver_response(
     let t2 = times.clone();
     let hooks2 = hooks.clone();
     let view2 = view.clone();
-    let expected = parts.headers.get(http::header::CONTENT_LENGTH).and_then(|v| v.to_str().ok()).and_then(|v| v.parse::<u64>().ok());
     let hold = live.hold();
     let key = shared.recorder.open(
         live.id,
@@ -921,7 +933,7 @@ async fn deliver_response(
     guard.disarm();
     live.update(|d| d.timers.client_begin_response = Some(now_us()));
     let incoming = source.take().expect("response body");
-    let body = throttle(Tee::new(incoming, shared.recorder.clone(), key, times).boxed());
+    let body = throttle(Tee::new(incoming, shared.recorder.clone(), key, times, expected).boxed());
     let mut out = Response::from_parts(parts, body);
     strip_hop_by_hop(out.headers_mut());
     out

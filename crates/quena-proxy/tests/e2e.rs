@@ -69,6 +69,16 @@ async fn app(req: Request<hyper::body::Incoming>) -> Result<Response<TBody>, Inf
             tokio::time::sleep(Duration::from_secs(60)).await;
             Response::builder().body(Full::new(Bytes::from("late")).boxed())
         }
+        "/status/204" => Response::builder().status(204).body(Full::new(Bytes::new()).boxed()),
+        "/status/304" => Response::builder().status(304).body(Full::new(Bytes::new()).boxed()),
+        "/status/304-length" => Response::builder().status(304).header("Content-Length", "1234").body(Full::new(Bytes::new()).boxed()),
+        "/status/202" => Response::builder().status(202).header("Content-Length", "16").body(Full::new(Bytes::from_static(b"{\"success\":true}")).boxed()),
+        "/preflight" => Response::builder().header("Content-Length", "32").body(Full::new(Bytes::from_static(b"0123456789abcdef0123456789abcdef")).boxed()),
+        "/empty" => Response::builder().header("Content-Length", "0").body(Full::new(Bytes::new()).boxed()),
+        "/head" => {
+            let body = if req.method() == hyper::Method::HEAD { Bytes::new() } else { Bytes::from_static(b"hello world") };
+            Response::builder().header("Content-Length", "11").body(Full::new(body).boxed())
+        }
         "/status/404" => Response::builder().status(404).body(Full::new(Bytes::from("nope")).boxed()),
         "/version" => Response::builder().body(Full::new(Bytes::from(format!("{:?}", req.version()))).boxed()),
         _ => Response::builder().status(404).body(Full::new(Bytes::new()).boxed()),
@@ -155,6 +165,101 @@ fn wait_done(env: &Env, pred: impl Fn(&quena_model::SessionSummary) -> bool) -> 
     }
     let all: Vec<_> = env.capture.index.find_all(|_| true).into_iter().filter_map(|id| env.capture.index.get(id)).collect();
     panic!("session not found; have: {all:#?}");
+}
+
+#[test]
+fn complete_and_bodyless_responses_are_not_marked_aborted() {
+    let env = setup();
+    let cases = [
+        ("/status/204", "GET", 204, ""),
+        ("/status/304", "GET", 304, ""),
+        ("/status/304-length", "GET", 304, ""),
+        ("/empty", "GET", 200, ""),
+        ("/head", "HEAD", 200, ""),
+        ("/status/202", "POST", 202, "{\"success\":true}"),
+        ("/preflight", "OPTIONS", 200, "0123456789abcdef0123456789abcdef"),
+    ];
+    for (transport, base, http_version) in [
+        ("http", format!("http://{}", env.http), "--http1.1"),
+        ("https", format!("https://localhost:{}", env.https.port()), "--http1.1"),
+        ("h2", format!("https://localhost:{}", env.https.port()), "--http2"),
+    ] {
+        if transport == "h2" && !curl_supports_http2() {
+            eprintln!("curl has no HTTP/2 support; skipping HTTP/2 completion checks");
+            continue;
+        }
+        for (path, method, status, expected_body) in cases {
+            let path = format!("{path}?transport={transport}");
+            let url = format!("{base}{path}");
+            let mut cmd = curl_cmd();
+            cmd.args(["-sS", "--noproxy", "", "--max-time", "10", "--proxy", &format!("http://{}", env.proxy_addr), "--cacert", env.quena_ca.to_str().unwrap(), http_version]);
+            if method == "HEAD" {
+                cmd.arg("--head");
+            } else {
+                cmd.args(["--request", method]);
+            }
+            let out = cmd.arg(url).output().unwrap();
+            assert!(out.status.success(), "{transport} {method} {path}: {}", String::from_utf8_lossy(&out.stderr));
+            if method != "HEAD" {
+                assert_eq!(out.stdout, expected_body.as_bytes());
+            }
+            let s = wait_done(&env, |s| s.url == path);
+            let detail = env.capture.detail(s.id).unwrap();
+            assert_eq!(s.state, SessionState::Done, "{transport} {method} {path}: {:?}", detail.error);
+            assert_eq!(s.status, status);
+            assert_eq!(s.response_body_len, expected_body.len() as u64);
+            assert_eq!(detail.error, None);
+            assert!(!s.has_flag(quena_model::flags::CLIENT_ABORTED));
+            if transport == "h2" {
+                assert_eq!(detail.request.version, quena_model::HttpVersion::Http2);
+            }
+        }
+    }
+    env.proxy.stop();
+}
+
+#[test]
+fn truncated_response_body_is_still_marked_aborted() {
+    use std::io::Read;
+    let env = setup();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin_addr = listener.local_addr().unwrap();
+    let (close, closed) = std::sync::mpsc::channel();
+    let origin = std::thread::spawn(move || {
+        let (mut socket, _) = listener.accept().unwrap();
+        socket.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let mut request = Vec::new();
+        let mut byte = [0];
+        while !request.ends_with(b"\r\n\r\n") {
+            socket.read_exact(&mut byte).unwrap();
+            request.push(byte[0]);
+        }
+        socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 16\r\n\r\npartial").unwrap();
+        // Close only after the client has received these seven bytes through Quena.
+        let _ = closed.recv_timeout(Duration::from_secs(5));
+    });
+    let mut client = std::net::TcpStream::connect(env.proxy_addr).unwrap();
+    client.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    write!(client, "GET http://{origin_addr}/truncated HTTP/1.1\r\nHost: {origin_addr}\r\n\r\n").unwrap();
+    let mut head = Vec::new();
+    let mut byte = [0];
+    while !head.ends_with(b"\r\n\r\n") {
+        client.read_exact(&mut byte).unwrap();
+        head.push(byte[0]);
+    }
+    assert!(head.starts_with(b"HTTP/1.1 200"));
+    let mut body = [0; 7];
+    client.read_exact(&mut body).unwrap();
+    assert_eq!(&body, b"partial");
+    close.send(()).unwrap();
+    origin.join().unwrap();
+    let _ = client.read_to_end(&mut Vec::new());
+    let s = wait_done(&env, |s| s.url == "/truncated");
+    let detail = env.capture.detail(s.id).unwrap();
+    assert_eq!(s.state, SessionState::Aborted);
+    assert!(s.has_flag(quena_model::flags::CLIENT_ABORTED));
+    assert_eq!(detail.error.as_deref(), Some("connection closed after 7 of 16 bytes"));
+    env.proxy.stop();
 }
 
 #[test]

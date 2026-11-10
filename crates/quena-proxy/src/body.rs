@@ -86,17 +86,23 @@ pub struct TeeTimes {
 }
 
 /// Forwards frames unchanged and hands a copy of every data frame to the recorder.
-pub struct Tee<B> {
+pub struct Tee<B: Body> {
     inner: B,
     rec: Recorder,
     key: RecKey,
     times: Arc<TeeTimes>,
+    remaining: Option<u64>,
     done: bool,
 }
 
-impl<B> Tee<B> {
-    pub fn new(inner: B, rec: Recorder, key: RecKey, times: Arc<TeeTimes>) -> Self {
-        Tee { inner, rec, key, times, done: false }
+impl<B: Body> Tee<B> {
+    pub fn new(inner: B, rec: Recorder, key: RecKey, times: Arc<TeeTimes>, expected: Option<u64>) -> Self {
+        // HTTP consumers may skip polling an already empty body entirely.
+        let done = inner.is_end_stream();
+        if done {
+            rec.end(key, false);
+        }
+        Tee { inner, rec, key, times, remaining: expected, done }
     }
 }
 
@@ -118,10 +124,11 @@ where
                         let _ = this.times.first.compare_exchange(0, now, Ordering::Relaxed, Ordering::Relaxed);
                         this.times.last.store(now, Ordering::Relaxed);
                         this.rec.chunk(this.key, d.clone());
+                        this.remaining = this.remaining.and_then(|n| n.checked_sub(d.len() as u64));
                     }
                 }
-                // Consumers that know the length (Content-Length) stop polling after
-                // the last byte, so detect the end here instead of waiting for `None`.
+                // Keep reading trailers when present; an explicit read error must still
+                // fail even if all the advertised data bytes have arrived.
                 if !this.done && this.inner.is_end_stream() {
                     this.done = true;
                     this.rec.end(this.key, false);
@@ -158,12 +165,14 @@ where
     }
 }
 
-impl<B> Drop for Tee<B> {
+impl<B: Body> Drop for Tee<B> {
     fn drop(&mut self) {
         if !self.done {
             self.done = true;
-            // Dropped before the end: the peer went away.
-            self.rec.end(self.key, true);
+            // Consumers can stop after Content-Length bytes without polling the EOF.
+            // Unknown-length streams still need their actual end, not just a drop.
+            let aborted = !self.inner.is_end_stream() && self.remaining != Some(0);
+            self.rec.end(self.key, aborted);
         }
     }
 }
@@ -290,6 +299,127 @@ impl Body for StoredStream {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Like an HTTP/2 body whose END_STREAM or trailers arrive after the last data.
+    struct DelayedEnd {
+        frames: std::collections::VecDeque<Result<Frame<Bytes>, std::io::Error>>,
+        ended: bool,
+    }
+
+    impl DelayedEnd {
+        fn new(frames: impl IntoIterator<Item = Result<Frame<Bytes>, std::io::Error>>) -> Self {
+            Self { frames: frames.into_iter().collect(), ended: false }
+        }
+    }
+
+    impl Body for DelayedEnd {
+        type Data = Bytes;
+        type Error = std::io::Error;
+
+        fn poll_frame(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Result<Frame<Bytes>, std::io::Error>>> {
+            let frame = self.frames.pop_front();
+            self.ended = frame.is_none();
+            Poll::Ready(frame)
+        }
+
+        fn is_end_stream(&self) -> bool {
+            self.ended
+        }
+    }
+
+    fn recording<B: Body>(inner: B, expected: Option<u64>) -> (Tee<B>, std::sync::mpsc::Receiver<(StoredBody, bool)>, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let store = quena_body::BodyStore::open(dir.path(), quena_body::BodyConfig::default()).unwrap();
+        let recorder = Recorder::new(1);
+        let (tx, rx) = std::sync::mpsc::channel();
+        let key = recorder.open(1, store.writer(), Box::new(move |body, aborted| tx.send((body, aborted)).unwrap()));
+        (Tee::new(inner, recorder, key, Arc::new(TeeTimes::default()), expected), rx, dir)
+    }
+
+    #[tokio::test]
+    async fn empty_tee_finishes_without_being_polled_or_dropped() {
+        let (tee, done, _dir) = recording(http_body_util::Empty::<Bytes>::new(), Some(0));
+        // HTTP/1 and HTTP/2 servers may only call is_end_stream() on empty responses.
+        assert!(tee.is_end_stream());
+        let (body, aborted) = done.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
+        assert!(!aborted);
+        assert_eq!(body.wire_len(), 0);
+        drop(tee);
+        assert!(matches!(done.try_recv(), Err(std::sync::mpsc::TryRecvError::Disconnected)));
+    }
+
+    #[tokio::test]
+    async fn tee_dropped_after_known_length_is_complete_without_an_eof_poll() {
+        for expected in [0, 16, 32] {
+            let data = Bytes::from(vec![b'x'; expected as usize]);
+            let source = DelayedEnd::new([Ok(Frame::data(data.clone()))]);
+            let (mut tee, done, _dir) = recording(source, Some(expected));
+            if expected > 0 {
+                assert_eq!(tee.frame().await.unwrap().unwrap().into_data().unwrap(), data);
+            }
+            assert!(!tee.is_end_stream());
+            drop(tee);
+            let (body, aborted) = done.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
+            assert!(!aborted, "complete {expected}-byte body was marked aborted");
+            assert_eq!(body.wire_len(), expected);
+        }
+    }
+
+    #[tokio::test]
+    async fn tee_dropped_before_known_or_unknown_length_end_is_aborted() {
+        for expected in [Some(16), None] {
+            let source = DelayedEnd::new([Ok(Frame::data(Bytes::from_static(b"partial")))]);
+            let (mut tee, done, _dir) = recording(source, expected);
+            tee.frame().await.unwrap().unwrap();
+            drop(tee);
+            let (body, aborted) = done.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
+            assert!(aborted, "dropped {expected:?}-byte body was marked complete");
+            assert_eq!(body.wire_len(), 7);
+        }
+    }
+
+    #[tokio::test]
+    async fn tee_unknown_length_finishes_at_actual_eof() {
+        let source = DelayedEnd::new([Ok(Frame::data(Bytes::from_static(b"complete")))]);
+        let (mut tee, done, _dir) = recording(source, None);
+        tee.frame().await.unwrap().unwrap();
+        assert!(tee.frame().await.is_none());
+        let (body, aborted) = done.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
+        assert!(!aborted);
+        assert_eq!(body.wire_len(), 8);
+    }
+
+    #[tokio::test]
+    async fn tee_read_error_after_all_data_still_aborts() {
+        let source = DelayedEnd::new([
+            Ok(Frame::data(Bytes::from_static(b"complete"))),
+            Err(std::io::Error::other("failed to read trailers")),
+        ]);
+        let (mut tee, done, _dir) = recording(source, Some(8));
+        tee.frame().await.unwrap().unwrap();
+        assert!(tee.frame().await.unwrap().is_err());
+        drop(tee);
+        let (body, aborted) = done.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
+        assert!(aborted, "an explicit body error was hidden by matching Content-Length");
+        assert_eq!(body.wire_len(), 8);
+    }
+
+    #[tokio::test]
+    async fn tee_forwards_trailers_after_all_data() {
+        let mut trailers = http::HeaderMap::new();
+        trailers.insert("grpc-status", http::HeaderValue::from_static("0"));
+        let source = DelayedEnd::new([
+            Ok(Frame::data(Bytes::from_static(b"complete"))),
+            Ok(Frame::trailers(trailers.clone())),
+        ]);
+        let (mut tee, done, _dir) = recording(source, Some(8));
+        tee.frame().await.unwrap().unwrap();
+        assert_eq!(tee.frame().await.unwrap().unwrap().into_trailers().unwrap(), trailers);
+        assert!(tee.frame().await.is_none());
+        let (body, aborted) = done.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
+        assert!(!aborted);
+        assert_eq!(body.wire_len(), 8);
+    }
 
     /// A multi-frame source body for exercising the throttle.
     struct Chunks(std::collections::VecDeque<Bytes>);
