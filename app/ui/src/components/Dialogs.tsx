@@ -817,6 +817,9 @@ function OptionsDialog() {
             <LanguageChoice />
             <RememberViewsOption />
             <label className="f-check">
+              <input type="checkbox" checked={s.confirmRemoveAll !== false} onChange={(e) => up((x) => (x.confirmRemoveAll = e.target.checked))} /> {t("Confirm before removing all sessions")}
+            </label>
+            <label className="f-check">
               <input type="checkbox" checked={s.proxy.captureOnStartup} onChange={(e) => up((x) => (x.proxy.captureOnStartup = e.target.checked))} /> {t("Capture traffic on startup")}
             </label>
             <label className="f-check">

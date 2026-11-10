@@ -416,6 +416,8 @@ pub struct Settings {
     pub bodies: BodyConfigDto,
     /// "Keep: N sessions" (0 = all).
     pub keep_sessions: usize,
+    /// Ask before removing all sessions from the menu or keyboard shortcut.
+    pub confirm_remove_all: bool,
     /// "Stream" toggle: stream responses to the client (default) or buffer them.
     pub stream: bool,
     /// "Decode" toggle: show decoded bodies by default.
@@ -469,6 +471,7 @@ impl Default for Settings {
             https: HttpsSettings::default(),
             bodies: BodyConfigDto::default(),
             keep_sessions: 0,
+            confirm_remove_all: true,
             stream: true,
             decode: true,
             headers_only_hosts: String::new(),

@@ -819,6 +819,8 @@ export interface Settings {
     maxRatio: number;
   };
   keepSessions: number;
+  /** Ask before removing all sessions; enabled when absent in older settings. */
+  confirmRemoveAll?: boolean;
   stream: boolean;
   decode: boolean;
   headersOnlyHosts: string;

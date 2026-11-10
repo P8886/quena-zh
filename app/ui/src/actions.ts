@@ -234,8 +234,10 @@ export const actions = {
   async removeAll() {
     const n = get().listCount;
     if (!n) return;
-    const ok = await confirmRemove(plural(n, "Remove {n} session?", "Remove all {n} sessions?"));
-    if (!ok) return;
+    if (get().settings?.confirmRemoveAll !== false) {
+      const ok = await confirmRemove(plural(n, "Remove {n} session?", "Remove all {n} sessions?"));
+      if (!ok) return;
+    }
     await actions.clearSessions();
     say(t("All sessions removed"));
   },

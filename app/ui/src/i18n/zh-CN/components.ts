@@ -174,6 +174,7 @@ export const components: Record<string, string> = {
   "empty = mcp-files in the data folder": "留空则使用数据目录下的 mcp-files",
   "Exports, .http collections and files served by mock rules: agents may only read and write files in this folder. Captured traffic is foreign content; an agent with full control could be misled by it, so grant full control only while you watch.": "智能体只能在此目录中读写导出文件、.http 请求集合及模拟规则引用的文件。捕获的流量含有外部内容，可能误导具有完全控制权限的智能体，请在监督下使用完全控制模式。",
   "MCP server not running: {error}": "MCP 服务器未运行：{error}",
+  "Confirm before removing all sessions": "删除全部会话前确认",
   "Capture traffic on startup": "启动时开始抓包",
   "Stream responses (instead of buffering)": "实时转发响应（无需等待完整响应）",
   "Decode compressed bodies in inspectors": "在详情视图中解压正文",

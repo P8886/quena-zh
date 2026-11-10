@@ -155,6 +155,10 @@ Marks and comments are saved in `.saz` archives, and both can be used in filters
 | Remove all except the selected | `Shift Del` |
 | Remove all | `Ctrl X` (also `⌘X` on macOS), or `cls` in the command field |
 
+*Remove all* from the menu or keyboard shortcut asks for confirmation by default.
+To clear immediately, turn off *Settings → General → Confirm before removing all
+sessions* and click *OK*. Quena remembers the choice across restarts.
+
 The toolbar's **Remove** button also removes all *Images*, *Tunnels (CONNECT)*,
 *Non-200s*, or *Complete & Unmarked* sessions at once.
 

@@ -16,6 +16,7 @@ This manual uses the English names of menus and settings.
 | *Language* | Like the system | *Like the system*, *English*, *Deutsch* or *简体中文*. Switching reloads the window and the menus. |
 | *Inspector views* | grouped | *Grouped*: sections Headers, Body, Cookies, Auth, Raw, with the views that fit the body below them. *Flat*: all views in one row, as before 0.1.5. See [Inspect](inspect.md#sections-and-views). |
 | *Inspector views: remember* | on | Remember the chosen view for each kind of content, separately for request and response (e.g. SOAP → XML, JSON → Body). Shows how many are remembered, with *Forget remembered views*. |
+| *Confirm before removing all sessions* | on | Ask before *Remove all* from the menu or keyboard shortcut. Turn off to clear sessions immediately; click *OK* to save the choice across restarts. |
 | *Capture traffic on startup* | on | Start capturing when Quena starts. |
 | *Stream responses (instead of buffering)* | on | Same as the *Stream* toolbar toggle. |
 | *Decode compressed bodies in inspectors* | on | Same as the *Decode* toolbar toggle. |

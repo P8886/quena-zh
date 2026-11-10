@@ -871,6 +871,26 @@ mod settings_tests {
     use super::*;
 
     #[test]
+    fn removing_all_sessions_requires_confirmation_by_default() {
+        assert!(Settings::default().confirm_remove_all);
+        let legacy: Settings = serde_json::from_value(serde_json::json!({ "keepSessions": 250 })).unwrap();
+        assert!(legacy.confirm_remove_all);
+        assert_eq!(legacy.keep_sessions, 250);
+    }
+
+    #[test]
+    fn remove_all_confirmation_preference_survives_saving_and_loading() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let mut settings = Settings::default();
+        for enabled in [false, true] {
+            settings.confirm_remove_all = enabled;
+            settings.save(&path).unwrap();
+            assert_eq!(Settings::load(&path), settings);
+        }
+    }
+
+    #[test]
     fn update_settings_keeps_the_sanitize_options_of_the_core() {
         let dir = tempfile::tempdir().unwrap();
         let core = AppCore::new(Paths::at(dir.path().to_path_buf()), logbuf::LogBuffer::new(10)).unwrap();

@@ -8,6 +8,8 @@ contain breaking changes (settings, file formats, plugin API).
 ## [Unreleased]
 
 ### Added
+- A General setting controls confirmation before removing all sessions from the menu
+  or keyboard shortcut. It defaults to on and is remembered across restarts.
 - Simplified Chinese interface and native menus, with automatic selection on Chinese systems.
 - A permanent status-bar button cycles automatic breakpoints before requests, before
   responses reach the client, and off; paused sessions can be resumed from the status bar.

@@ -177,6 +177,7 @@ export const components: Record<string, string> = {
   "Exports, .http collections and files served by mock rules: agents may only read and write files in this folder. Captured traffic is foreign content; an agent with full control could be misled by it, so grant full control only while you watch.":
     "Exporte, .http-Collections und von Mock-Regeln ausgelieferte Dateien: Agenten dürfen nur in diesem Ordner lesen und schreiben. Mitgeschnittener Verkehr ist fremder Inhalt, der einen Agenten mit voller Steuerung täuschen kann – volle Steuerung daher nur unter Aufsicht geben.",
   "MCP server not running: {error}": "MCP-Server läuft nicht: {error}",
+  "Confirm before removing all sessions": "Vor dem Entfernen aller Sessions nachfragen",
   "Capture traffic on startup": "Beim Start Verkehr aufzeichnen",
   "Stream responses (instead of buffering)": "Responses streamen (statt puffern)",
   "Decode compressed bodies in inspectors": "Komprimierte Bodies in Inspektoren dekodieren",
