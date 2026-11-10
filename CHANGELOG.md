@@ -31,6 +31,8 @@ contain breaking changes (settings, file formats, plugin API).
 - Clearing sessions isolates late network updates, body-recording completion and background
   analysis from reused session numbers. Removed rows stay removed; cleared breakpoints are
   aborted, and their cleanup cannot release or remove a new request's breakpoint.
+- The command field uses a terminal prompt icon to distinguish commands and filters from
+  the adjacent Find Sessions button.
 - Session selection keeps readable text even when the list loses focus. Request and response
   breakpoints use red and yellow dots in a fixed gutter, leaving search backgrounds intact;
   a separate mark bar keeps search highlights visible while selected. Dots disappear on resume.

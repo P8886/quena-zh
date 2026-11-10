@@ -1,6 +1,6 @@
 // Command field in the toolbar: filters and commands (`?text`, `=404`, `@host`, `bpu /login` …).
 import { useRef, useState } from "react";
-import { Search } from "lucide-react";
+import { Terminal } from "lucide-react";
 import { actions } from "../actions";
 import { modKey } from "../lib/format";
 import { t } from "../i18n";
@@ -36,7 +36,7 @@ export function CommandField() {
 
   return (
     <div className="cmdfield" title={t("Filter or run a command (Alt+Q). Type help for the syntax.")}>
-      <Search size={14} className="cmd-icon" />
+      <Terminal size={14} className="cmd-icon" />
       <input
         value={value}
         spellCheck={false}
