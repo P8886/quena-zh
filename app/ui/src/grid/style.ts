@@ -12,6 +12,8 @@ export interface Palette {
   purple: string;
   gray: string;
   amber: string;
+  breakpointRequest: string;
+  breakpointResponse: string;
   selBg: string;
   selFg: string;
   selInactiveBg: string;
@@ -36,6 +38,8 @@ export function readPalette(el: HTMLElement): Palette {
     purple: v("--row-purple"),
     gray: v("--row-gray"),
     amber: v("--row-amber"),
+    breakpointRequest: v("--breakpoint-request"),
+    breakpointResponse: v("--breakpoint-response"),
     selBg: v("--sel-bg"),
     selFg: v("--sel-fg"),
     selInactiveBg: v("--sel-inactive-bg"),
@@ -68,15 +72,15 @@ export interface RowStyle {
   bold: boolean;
   bg: string | null;
   italic: boolean;
+  /** The user's mark stays visible when selection covers its background. */
+  markBar: string | null;
+  breakpointDot: string | null;
 }
 
-export function rowStyle(r: SessionSummary, p: Palette): RowStyle {
+export function rowStyle(r: SessionSummary, p: Palette, selection: "none" | "active" | "inactive" = "none"): RowStyle {
   let fg = p.fg;
   let bold = false;
   let italic = false;
-  if (r.state === "breakpointRequest" || r.state === "breakpointResponse") {
-    return { fg: p.red, bold: true, bg: p.marks.red, italic: false };
-  }
   // The outcome is shown by the status badge; only aborted sessions and tunnels tint the row.
   if (r.state === "aborted") fg = p.red;
   else if (r.kind === "tunnel") fg = p.gray;
@@ -87,7 +91,16 @@ export function rowStyle(r: SessionSummary, p: Palette): RowStyle {
     fg = p.markFg[r.color] || fg;
     bold = true;
   }
-  return { fg, bold, bg, italic };
+  // Only a currently paused session has a dot; the BREAKPOINTED history flag is not enough.
+  const breakpointDot = r.state === "breakpointRequest" ? p.breakpointRequest
+    : r.state === "breakpointResponse" ? p.breakpointResponse : null;
+  if (breakpointDot) italic = false;
+  // Breakpoints use the dot so selection and search highlights can keep their backgrounds.
+  if (selection !== "none") {
+    bg = selection === "active" ? p.selBg : p.selInactiveBg;
+    fg = p.selFg;
+  }
+  return { fg, bold, bg, italic, markBar: r.color ? p.markFg[r.color] : null, breakpointDot };
 }
 
 export type Tone = "ok" | "info" | "warn" | "err" | "muted" | "violet";
@@ -138,6 +151,7 @@ export function stateMark(r: SessionSummary, p: Palette): string | null {
   switch (r.state) {
     case "breakpointRequest":
     case "breakpointResponse":
+      return null;
     case "aborted":
       return p.red;
     case "requestHeaders":

@@ -118,12 +118,21 @@ The list is meant to be read at a glance:
 | *Duration* | amber above **1 s**, red above **5 s** |
 | *Size* | amber above **1 MB**, red above **10 MB** |
 | Row text | red for aborted sessions, grey for tunnels, *italic* while still in flight |
-| Row paused at a breakpoint | bold red on a red background |
+| Paused before sending a request | red dot in the fixed gutter before the row number |
+| Paused before returning a response | yellow dot in the same gutter; the HTTP status remains visible |
 | Your marks | the row gets the mark's background colour, in bold |
+| Selected row | blue background with contrasting text, including when the list loses focus |
 
-A thin **state bar** at the left edge of a row shows red for a breakpoint or an aborted
-session, the accent colour while the session is in flight, purple for a response from
+A thin **state bar** at the left edge of a row shows red for an aborted session,
+the accent colour while the session is in flight, purple for a response from
 [Mock Rules](change-replay.md#mock-rules) and blue for a WebSocket.
+
+Backgrounds take priority in this order: **selection → mark → normal**. Breakpoints
+only add a dot; they do not change the row's background or text colour. A second thin bar
+beside the state bar keeps the mark colour visible even while the row is selected.
+The dot remains visible while selected or marked, when the number column is hidden,
+and while scrolling horizontally. It disappears as soon as the session resumes; a session
+that hit a breakpoint earlier has no dot. Status and method badges keep their own colours.
 
 ## Selecting
 

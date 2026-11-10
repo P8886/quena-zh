@@ -41,6 +41,8 @@
   --row-purple: #7a2a9e;
   --row-gray: #7f7f7f;
   --row-amber: #a35a00;
+  --breakpoint-request: #e53935;
+  --breakpoint-response: #f4c430;
   --sel-bg: #d7e6fb;
   --sel-fg: #18202b;
   --sel-inactive-bg: #e8eef7;
@@ -120,6 +122,8 @@
     --row-purple: #c792ea;
     --row-gray: #8c8c8c;
     --row-amber: #f0a64a;
+    --breakpoint-request: #ff5b5b;
+    --breakpoint-response: #ffd43b;
     --sel-bg: #1d3557;
     --sel-fg: #e4e9f2;
     --sel-inactive-bg: #1a283d;
@@ -197,6 +201,8 @@
   --row-purple: #c792ea;
   --row-gray: #8c8c8c;
   --row-amber: #f0a64a;
+  --breakpoint-request: #ff5b5b;
+  --breakpoint-response: #ffd43b;
   --sel-bg: #1d3557;
   --sel-fg: #e4e9f2;
   --sel-inactive-bg: #1a283d;
@@ -560,6 +566,7 @@ kbd,
   min-width: 0;
 }
 .grid-header {
+  position: relative;
   overflow: hidden;
   background: var(--grid-bg);
   border-bottom: 1px solid var(--border);
@@ -568,6 +575,11 @@ kbd,
 .grid-header-inner {
   display: flex;
   height: 100%;
+}
+.grid-indicator-header {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--grid-bg);
 }
 .gh-cell {
   position: relative;

@@ -19,6 +19,8 @@ import { browserMenuWanted } from "../components/contextMenus";
 let ROW_H = 24;
 const rowHeightFor = (preset: string) => (preset === "classic" ? 20 : 24);
 const MAX_SCROLL_PX = 8_000_000;
+/** A fixed gutter keeps breakpoint dots visible independently of columns and scrolling. */
+const INDICATOR_W = 22;
 const FONT = "12px -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif";
 const FONT_BOLD = "600 12px -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif";
 const FONT_ITALIC = "italic 12px -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif";
@@ -65,7 +67,7 @@ export function displayColumns(width: number): ColumnConf[] {
   // With the navigator open it lists the groups' names: the column needs less room.
   const groupWidth = layout.groupWidth ?? (layout.navOpen ? 150 : 240);
   const group: ColumnConf[] = layout.groupBy && layout.groupBy !== "none" ? [{ key: "group", title: t("Group"), width: groupWidth, visible: true }] : [];
-  return fitColumns([...group, ...layout.columns], width);
+  return fitColumns([...group, ...layout.columns], Math.max(0, width - INDICATOR_W));
 }
 
 export function fitColumns(cols: ColumnConf[], width: number): ColumnConf[] {
@@ -285,7 +287,9 @@ export class GridController {
   /** The column at a client x position. */
   columnAt(clientX: number): ColumnConf | undefined {
     const rect = this.canvas.getBoundingClientRect();
-    let x = clientX - rect.left + this.scroller.scrollLeft;
+    const localX = clientX - rect.left;
+    if (localX < INDICATOR_W) return undefined;
+    let x = localX - INDICATOR_W + this.scroller.scrollLeft;
     for (const c of this.columns()) {
       if (x < c.width) return c;
       x -= c.width;
@@ -323,7 +327,7 @@ export class GridController {
   }
 
   totalWidth(): number {
-    return this.columns().reduce((a, c) => a + c.width, 0);
+    return INDICATOR_W + this.columns().reduce((a, c) => a + c.width, 0);
   }
 
   private resize() {
@@ -445,38 +449,37 @@ export class GridController {
         ctx.fillText("…", 6 - sx, y + ROW_H / 2);
         continue;
       }
-      const st = rowStyle(r, p);
       const selected = selection.has(r.id);
-      if (selected) {
-        ctx.fillStyle = this.hasFocus ? p.selBg : p.selInactiveBg;
-        ctx.fillRect(0, y, this.vw, ROW_H);
-      } else if (st.bg) {
+      const st = rowStyle(r, p, selected ? (this.hasFocus ? "active" : "inactive") : "none");
+      if (st.bg) {
         ctx.fillStyle = st.bg;
         ctx.fillRect(0, y, this.vw, ROW_H);
       }
       const font = st.bold ? FONT_BOLD : st.italic ? FONT_ITALIC : FONT;
       ctx.font = font;
-      let x = -sx;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(INDICATOR_W, y, Math.max(0, this.vw - INDICATOR_W), ROW_H);
+      ctx.clip();
+      let x = INDICATOR_W - sx;
       for (const c of cols) {
-        if (x + c.width < 0) {
+        if (x + c.width < INDICATOR_W) {
           x += c.width;
           continue;
         }
         if (x > this.vw) break;
-        const fg = selected && this.hasFocus ? p.selFg : st.fg;
-        const sel = selected && this.hasFocus;
         if (c.key === "group") {
-          this.groupCell(r, i, x, y, c.width, sel);
+          this.groupCell(r, i, x, y, c.width, selected);
           ctx.font = font;
         } else if (c.key === "id") {
-          ctx.fillStyle = sel ? p.selFg : p.muted;
+          ctx.fillStyle = selected ? st.fg : p.muted;
           ctx.fillText(this.ell.fit(ctx, String(r.id), c.width - 12, font), x + 8, y + ROW_H / 2 + 0.5);
         } else if (c.key === "method" || c.key === "result") {
           const pill = c.key === "method" ? methodPill(r) : statusPill(r);
           if (pill) this.pill(pill, x + 4, y, c.width - 8);
           else if (c.key === "result" && r.state !== "done") {
-            ctx.fillStyle = sel ? p.selFg : p.muted;
-            ctx.fillText("…", x + 6, y + ROW_H / 2 + 0.5);
+            ctx.fillStyle = selected ? st.fg : p.muted;
+            ctx.fillText(st.breakpointDot ? "—" : "…", x + 6, y + ROW_H / 2 + 0.5);
           }
           ctx.font = font;
         } else if (c.key === "url" && r.kind === "tunnel" && !r.url) {
@@ -484,7 +487,7 @@ export class GridController {
           ctx.font = font;
         } else {
           const text = this.ell.fit(ctx, cellText(r, c.key), c.width - 8, font);
-          ctx.fillStyle = sel ? fg : (outlier(r, c.key, p) ?? fg);
+          ctx.fillStyle = selected ? st.fg : (outlier(r, c.key, p) ?? st.fg);
           if (c.align === "right") {
             ctx.textAlign = "right";
             ctx.fillText(text, x + c.width - 4, y + ROW_H / 2 + 0.5);
@@ -495,10 +498,26 @@ export class GridController {
         }
         x += c.width;
       }
+      ctx.restore();
       const mark = stateMark(r, p);
       if (mark) {
         ctx.fillStyle = mark;
         ctx.fillRect(0, y + 3, 3, ROW_H - 6);
+      }
+      if (st.markBar) {
+        ctx.fillStyle = st.markBar;
+        ctx.fillRect(4, y + 3, 2, ROW_H - 6);
+      }
+      if (st.breakpointDot) {
+        ctx.beginPath();
+        ctx.arc(14, y + ROW_H / 2, 4, 0, Math.PI * 2);
+        ctx.fillStyle = st.breakpointDot;
+        ctx.fill();
+        // The outline keeps the yellow dot visible on light backgrounds and search marks.
+        ctx.strokeStyle = p.fg;
+        ctx.lineWidth = 0.75;
+        ctx.stroke();
+        ctx.lineWidth = 1;
       }
       if (focusIndex === i && this.hasFocus) {
         ctx.strokeStyle = p.focus;
@@ -515,10 +534,12 @@ export class GridController {
     ctx.strokeStyle = p.grid;
     ctx.beginPath();
     if (get().layout.preset === "classic") {
-      let x = -sx;
+      ctx.moveTo(INDICATOR_W - 0.5, 0);
+      ctx.lineTo(INDICATOR_W - 0.5, this.vh);
+      let x = INDICATOR_W - sx;
       for (const c of cols) {
         x += c.width;
-        if (x > 0 && x < this.vw) {
+        if (x > INDICATOR_W && x < this.vw) {
           ctx.moveTo(Math.floor(x) + 0.5, 0);
           ctx.lineTo(Math.floor(x) + 0.5, this.vh);
         }
@@ -639,7 +660,7 @@ function Header({ scrollX }: { scrollX: number }) {
 
   return (
     <div className="grid-header" onContextMenu={onContext}>
-      <div className="grid-header-inner" style={{ transform: `translateX(${-scrollX}px)` }}>
+      <div className="grid-header-inner" style={{ transform: `translateX(${-scrollX}px)`, paddingLeft: INDICATOR_W }}>
         {shown.map((c) => (
             <div
               key={c.key}
@@ -681,6 +702,7 @@ function Header({ scrollX }: { scrollX: number }) {
             </div>
           ))}
       </div>
+      <div className="grid-indicator-header" style={{ width: INDICATOR_W }} aria-hidden />
     </div>
   );
 }
