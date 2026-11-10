@@ -1086,8 +1086,8 @@ kbd,
   height: 100%;
 }
 .rawview {
-  /* Head as tall as its content, at most half the pane; the body takes the rest. */
-  grid-template-rows: fit-content(50%) minmax(0, 1fr);
+  /* Inline tracks restore the independently remembered request/response split. */
+  grid-template-rows: minmax(48px, 2fr) 8px minmax(60px, 3fr);
 }
 .rawview.head-only {
   grid-template-rows: minmax(0, 1fr);
@@ -1097,14 +1097,27 @@ kbd,
   padding: 6px 8px;
   font-family: var(--mono);
   line-height: 1.45;
-  border-bottom: 1px dashed var(--border);
   min-height: 0;
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-all;
 }
-.rawview.head-only .raw-head {
-  border-bottom: 0;
+.rawview > .splitter-h {
+  position: relative;
+  background: var(--panel-bg);
+}
+.rawview > .splitter-h::after {
+  content: "";
+  position: absolute;
+  width: 26px;
+  height: 2px;
+  left: calc(50% - 13px);
+  top: 2px;
+  background: var(--muted);
+  border-radius: 1px;
+}
+.rawview > .splitter-h:hover {
+  background: var(--accent-soft);
 }
 .raw-binary {
   color: var(--muted);

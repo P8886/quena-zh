@@ -50,6 +50,8 @@ on the left and the response on the right, like Fiddler's wide layout. Layouts a
 available under *View → Layout*; drag the dividers to resize the areas. The chosen layout
 and divider positions are remembered. *View → Request Above / Beside Response* switches
 only the inspector arrangement. Each inspector has the sections *Headers*, *Body*, *Cookies*, *Auth* and *Raw*.
+In *Raw*, drag the divider between headers and body to adjust their heights separately
+for requests and responses. These positions are remembered as well.
 Below *Body* are the views that fit the content (JSON tree, SOAP, image …), the others under
 **Other**. *Settings → General → Inspector views → Flat* brings back Fiddler's single row of
 tabs. The optional **navigator** (`Ctrl/⌘ Alt N`) left of the list narrows it to a host,

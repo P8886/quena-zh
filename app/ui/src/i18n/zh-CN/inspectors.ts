@@ -1,5 +1,6 @@
 // Simplified Chinese translations. Preserve placeholders, commands and protocol names.
 export const inspectors: Record<string, string> = {
+  "Resize headers and body": "上下拖动，调整头部与正文的高度",
   "Headers": "头部",
   "Plain Text": "纯文本",
   "Body": "正文",

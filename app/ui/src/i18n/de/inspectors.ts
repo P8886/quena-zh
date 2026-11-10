@@ -1,5 +1,6 @@
 // German translations: inspectors, session list and formatting helpers.
 export const inspectors: Record<string, string> = {
+  "Resize headers and body": "Höhe von Headern und Body anpassen",
   Headers: "Header",
   "Plain Text": "Nur Text",
   Body: "Body",

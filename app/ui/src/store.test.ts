@@ -27,4 +27,11 @@ describe("restoreLayout", () => {
     expect(layout).toMatchObject({ preset: "classic", leftWidth: 0.63, inspectorSplit: 0.39, stacked: true, listHeight: 0.42 });
     expect(restoreLayout({ preset: "wide" }).stacked).toBe(false);
   });
+  it("remembers the Raw header/body heights independently of the outer layout", () => {
+    const saved = JSON.parse(JSON.stringify({ preset: "wide", rawHeaderSplit: { request: 0.28, response: 0.63 } }));
+    const wide = restoreLayout(saved);
+    expect(wide.rawHeaderSplit).toEqual({ request: 0.28, response: 0.63 });
+    expect(restoreLayout({ ...wide, preset: "classic" }).rawHeaderSplit).toEqual(wide.rawHeaderSplit);
+    expect(restoreLayout({ preset: "classic" }).rawHeaderSplit).toBeUndefined();
+  });
 });

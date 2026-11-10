@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { NetworkProfile } from "./lib/diagReport";
-import type { FilterSettings, GroupBy, JobInfo, LogEntry, McpClient, ReplayBatchInfo, RwRule, SanitizedExport, SessionId, Settings, Sort, Status } from "./api";
+import type { FilterSettings, GroupBy, JobInfo, LogEntry, McpClient, Part, ReplayBatchInfo, RwRule, SanitizedExport, SessionId, Settings, Sort, Status } from "./api";
 import { t } from "./i18n";
 import type { MessageEdits } from "./sessionEdits";
 
@@ -172,6 +172,8 @@ export interface Layout {
   columns: ColumnConf[];
   requestTab: string;
   responseTab: string;
+  /** Header/body divider in Raw, remembered independently for request and response. */
+  rawHeaderSplit?: Partial<Record<Part, number>>;
   /** Colour theme: follow the OS, or force light/dark. */
   theme?: "system" | "light" | "dark";
   /** UI language: follow the OS, or English/German/Simplified Chinese (switching reloads the UI). */

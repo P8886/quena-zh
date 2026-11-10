@@ -9,7 +9,8 @@ import { effectiveCharset, loadBody, textVariant } from "../lib/bodytext";
 import { CharsetPicker, useCharsetOverride } from "./CharsetPicker";
 import { nodesToTree, type InspectSection } from "../lib/inspect";
 import { BodyText } from "./BodyText";
-import { get } from "../store";
+import { get, set, useStore } from "../store";
+import { Splitter } from "../components/Splitter";
 import { parseXml } from "../lib/xml";
 import { plural, t } from "../i18n";
 import { openMenu, withSelection } from "../components/contextMenus";
@@ -469,21 +470,29 @@ export function TransformerView({ detail }: { detail: Detail }) {
 
 export function RawView({ detail, part, wrap }: { detail: Detail; part: Part; wrap: boolean }) {
   const info = part === "request" ? detail.requestBody : detail.responseBody;
+  const split = useStore((s) => s.layout.rawHeaderSplit?.[part] ?? 0.4);
   const [override] = useCharsetOverride(detail.summary.id, part);
   const head = part === "request" ? [requestLine(detail), ...detail.request.headers.map(([k, v]) => `${k}: ${latin1ToUtf8(v)}`)].join("\n") : detail.response ? rawResponseHead(detail).trimEnd() : "";
   if (part === "response" && !detail.response) return <div className="placeholder">{t("No response")}</div>;
   const textBody = info.len > 0 && (info.isText || info.variants.includes("decoded"));
   // Without a text body the head gets the whole pane; the binary hint is one line below it.
   return (
-    <div className={textBody ? "rawview" : "rawview head-only"}>
+    <div
+      className={textBody ? "rawview" : "rawview head-only"}
+      style={textBody ? { gridTemplateRows: `minmax(48px, ${split}fr) 8px minmax(60px, ${1 - split}fr)` } : undefined}
+    >
       <pre className="raw-head">
         {head}
         {info.len > 0 && !textBody && <span className="raw-binary">{`\n\n${t("Binary body ({size}) – see Hex", { size: fmtBytes(info.len) })}`}</span>}
       </pre>
       {textBody && (
-        <div className="raw-body">
-          <BodyText id={detail.summary.id} part={part} info={info} variant={textVariant(info, "raw", override)} highlight={false} wrap={wrap} charset={effectiveCharset(info, override)} />
-        </div>
+        <>
+          <Splitter vertical min={[48, 60]} label={t("Resize headers and body")}
+            onDrag={(f) => set((s) => ({ layout: { ...s.layout, rawHeaderSplit: { ...s.layout.rawHeaderSplit, [part]: f } } }))} />
+          <div className="raw-body">
+            <BodyText id={detail.summary.id} part={part} info={info} variant={textVariant(info, "raw", override)} highlight={false} wrap={wrap} charset={effectiveCharset(info, override)} />
+          </div>
+        </>
       )}
     </div>
   );
