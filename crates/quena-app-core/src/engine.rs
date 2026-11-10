@@ -173,6 +173,7 @@ pub fn proxy_config(s: &Settings, detected: Option<(String, u16)>, system_bypass
         ignore_cert_errors_hosts: split_list(&s.https.ignore_cert_errors_hosts),
         cert_warn_days: s.https.cert_warn_days,
         enable_http2: s.https.enable_http2,
+        legacy_tls_fallback: s.https.legacy_tls_fallback,
         http2_downgrade_hosts: split_list(&s.https.http2_downgrade_hosts),
         upstream,
         upstream_bypass,

@@ -338,7 +338,7 @@ fn uuid_like(hexs: &str, salt: u8) -> String {
 }
 
 fn ring_sha1(data: &[u8]) -> Vec<u8> {
-    // Minimal SHA-1 (only used for the keychain fingerprint, not for security).
+    // Minimal SHA-1 (only used for certificate/keychain identifiers, not for security).
     let mut h: [u32; 5] = [0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0];
     let mut msg = data.to_vec();
     let bit_len = (data.len() as u64) * 8;
@@ -395,8 +395,35 @@ pub struct ClientConfigs {
     verified: Arc<std::sync::OnceLock<Verified>>,
     insecure_h2: Arc<ClientConfig>,
     insecure_h1: Arc<ClientConfig>,
-    /// Client certificates (mTLS) per host: host pattern -> (chain, key PEM path).
-    client_certs: Mutex<Vec<(String, Arc<ClientConfig>, Arc<ClientConfig>)>>,
+    /// Client certificates (mTLS) per host, in matching order.
+    client_certs: Mutex<Vec<ClientCertConfigs>>,
+}
+
+struct ClientCertConfigs {
+    pattern: String,
+    h2: Arc<ClientConfig>,
+    h1: Arc<ClientConfig>,
+    chain: Vec<CertificateDer<'static>>,
+    key: PrivateKeyDer<'static>,
+    native_identity: std::sync::OnceLock<std::result::Result<native_tls::Identity, String>>,
+}
+
+impl ClientCertConfigs {
+    fn import_native_identity(&self) -> std::result::Result<native_tls::Identity, String> {
+        use p12_keystore::{Certificate, KeyStore, KeyStoreEntry, PrivateKey, PrivateKeyChain};
+        let error = |e: p12_keystore::error::Error| e.to_string();
+        let pkcs8 = import::key_to_pkcs8(&self.key).map_err(|e| e.to_string())?;
+        let key = PrivateKey::from_der(&pkcs8).map_err(error)?;
+        let certs = self.chain.iter().map(|c| Certificate::from_der(c).map_err(error)).collect::<std::result::Result<Vec<_>, _>>()?;
+        let leaf = self.chain.first().ok_or("no client certificate")?;
+        let mut store = KeyStore::new();
+        store.add_entry("quena-client", KeyStoreEntry::PrivateKeyChain(PrivateKeyChain::new(ring_sha1(leaf), key, certs)));
+        // Apple's PEM importer rejects EC private keys. PKCS#12 accepts both RSA and
+        // EC identities and their chains; this encrypted archive stays in memory.
+        let password = format!("{:032x}", p12_keystore::rand::random::<u128>());
+        let archive = store.writer(&password).write().map_err(error)?;
+        native_tls::Identity::from_pkcs12(&archive, &password).map_err(|e| e.to_string())
+    }
 }
 
 struct Verified {
@@ -480,7 +507,11 @@ impl ClientConfigs {
             Ok(with_alpn(c, h2))
         };
         let (a, b) = (mk(true)?, mk(false)?);
-        self.client_certs.lock().push((pattern.to_ascii_lowercase(), a, b));
+        self.client_certs.lock().push(ClientCertConfigs {
+            pattern: pattern.to_ascii_lowercase(), h2: a, h1: b,
+            chain, key,
+            native_identity: std::sync::OnceLock::new(),
+        });
         Ok(())
     }
 
@@ -491,8 +522,8 @@ impl ClientConfigs {
     /// Pick a configuration for `host`.
     pub fn for_host(&self, host: &str, insecure: bool, h2: bool, glob: impl Fn(&str, &str) -> bool) -> Arc<ClientConfig> {
         let host = host.to_ascii_lowercase();
-        if let Some((_, a, b)) = self.client_certs.lock().iter().find(|(p, _, _)| glob(p, &host)) {
-            return if h2 { a.clone() } else { b.clone() };
+        if let Some(cert) = self.client_certs.lock().iter().find(|c| glob(&c.pattern, &host)) {
+            return if h2 { cert.h2.clone() } else { cert.h1.clone() };
         }
         match (insecure, h2) {
             (false, true) => self.verified().h2.clone(),
@@ -500,6 +531,30 @@ impl ClientConfigs {
             (true, true) => self.insecure_h2.clone(),
             (true, false) => self.insecure_h1.clone(),
         }
+    }
+
+    /// Older TLS 1.2 servers may require AES-CBC, which rustls deliberately does not
+    /// implement. Only the upstream connector's negotiation-error path calls this.
+    pub fn native_for_host(&self, host: &str, insecure: bool, glob: impl Fn(&str, &str) -> bool) -> Result<native_tls::TlsConnector> {
+        let mut builder = native_tls::TlsConnector::builder();
+        builder.min_protocol_version(Some(native_tls::Protocol::Tlsv12));
+        builder.max_protocol_version(Some(native_tls::Protocol::Tlsv12));
+        // HTTP/2 forbids CBC suites. The client-facing connection can still use h2;
+        // only this connection to the legacy server uses HTTP/1.1.
+        builder.request_alpns(&["http/1.1"]);
+        // Match the existing explicit per-host certificate policy; a handshake failure
+        // alone never turns off verification or permits a certificate-name mismatch.
+        // Native TLS verifies against the operating system's trust store.
+        let host = host.to_ascii_lowercase();
+        let certs = self.client_certs.lock();
+        if let Some(cert) = certs.iter().find(|c| glob(&c.pattern, &host)) {
+            let identity = cert.native_identity.get_or_init(|| cert.import_native_identity());
+            builder.identity(identity.as_ref().map_err(|e| TlsError::Other(format!("system TLS client certificate: {e}")))?.clone());
+        } else {
+            builder.danger_accept_invalid_certs(insecure);
+            builder.danger_accept_invalid_hostnames(insecure);
+        }
+        builder.build().map_err(|e| TlsError::Other(format!("system TLS: {e}")))
     }
 }
 
@@ -562,6 +617,20 @@ impl rustls::client::danger::ServerCertVerifier for NoVerify {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_client_identity_accepts_combined_pem_files_and_legacy_key_formats() {
+        let configs = ClientConfigs::new().unwrap();
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        for name in ["rsa-ca", "ec-ca"] {
+            let cert = std::fs::read_to_string(fixtures.join(format!("{name}.pem"))).unwrap();
+            let key = std::fs::read_to_string(fixtures.join(format!("{name}.key"))).unwrap();
+            let shared = format!("# Shared certificate and private key\n{cert}\n{key}");
+            configs.add_client_cert("legacy.example", &shared, &shared).unwrap();
+            configs.native_for_host("legacy.example", false, |pattern, host| pattern == host).unwrap_or_else(|e| panic!("{name}: {e}"));
+            configs.clear_client_certs();
+        }
+    }
 
     #[test]
     fn corrupt_ca_is_replaced_instead_of_failing() {

@@ -8,6 +8,10 @@ contain breaking changes (settings, file formats, plugin API).
 ## [Unreleased]
 
 ### Added
+- Legacy TLS cipher compatibility uses system TLS 1.2 and HTTP/1.1 when an upstream
+  server rejects modern algorithm negotiation, keeping HTTPS decryption and breakpoints.
+  It defaults to on and can be disabled in HTTPS settings. Certificate verification,
+  configured client identities, host remapping and upstream proxy routing still apply.
 - A General setting controls confirmation before removing all sessions from the menu
   or keyboard shortcut. It defaults to on and is remembered across restarts.
 - Simplified Chinese interface and native menus, with automatic selection on Chinese systems.

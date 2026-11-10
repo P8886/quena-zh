@@ -84,6 +84,8 @@ pub struct ProxyConfig {
     /// Sessions whose server certificate expires within this many days are flagged (0: never).
     pub cert_warn_days: u32,
     pub enable_http2: bool,
+    /// Retry algorithm-negotiation failures with system TLS 1.2 (including AES-CBC).
+    pub legacy_tls_fallback: bool,
     pub http2_downgrade_hosts: Vec<String>,
     pub upstream: Option<(String, u16)>,
     pub upstream_bypass: Vec<String>,
@@ -130,6 +132,7 @@ impl Default for ProxyConfig {
             ignore_cert_errors_hosts: vec![],
             cert_warn_days: 30,
             enable_http2: true,
+            legacy_tls_fallback: true,
             http2_downgrade_hosts: vec![],
             upstream: None,
             upstream_bypass: vec![],

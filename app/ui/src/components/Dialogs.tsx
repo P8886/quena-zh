@@ -993,6 +993,9 @@ function OptionsDialog() {
             <label className="f-check">
               <input type="checkbox" checked={s.https.enableHttp2} onChange={(e) => up((x) => (x.https.enableHttp2 = e.target.checked))} /> {t("Enable HTTP/2")}
             </label>
+            <label className="f-check" title={t("If modern TLS algorithm negotiation fails, retry with system TLS 1.2 and HTTP/1.1. Certificate verification still applies, and HTTPS decryption and breakpoints remain available.")}>
+              <input type="checkbox" checked={s.https.legacyTlsFallback !== false} onChange={(e) => up((x) => (x.https.legacyTlsFallback = e.target.checked))} /> {t("Allow legacy TLS cipher compatibility")}
+            </label>
             <div className="f-row">
               <span>{t("Downgrade to HTTP/1.1 for")}</span>
               <input value={s.https.http2DowngradeHosts} onChange={(e) => up((x) => (x.https.http2DowngradeHosts = e.target.value))} />

@@ -801,6 +801,7 @@ export interface Settings {
     ignoreCertErrors: boolean;
     ignoreCertErrorsHosts: string;
     enableHttp2: boolean;
+    legacyTlsFallback: boolean;
     http2DowngradeHosts: string;
     clientCerts: { host: string; certPath: string; keyPath: string }[];
     /** TLS key log (SSLKEYLOGFILE) for decrypting packet captures; "" = none. */

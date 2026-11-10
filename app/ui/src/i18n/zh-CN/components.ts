@@ -1,5 +1,7 @@
 // Simplified Chinese translations. Preserve placeholders, commands and protocol names.
 export const components: Record<string, string> = {
+  "Allow legacy TLS cipher compatibility": "兼容旧式 TLS 加密套件",
+  "If modern TLS algorithm negotiation fails, retry with system TLS 1.2 and HTTP/1.1. Certificate verification still applies, and HTTPS decryption and breakpoints remain available.": "现代 TLS 算法协商失败时，使用系统 TLS 1.2 和 HTTP/1.1 重试。仍会按当前设置验证证书，可继续解密 HTTPS 和使用断点。",
   "Capture This Computer": "抓取本机流量",
   "Enable Proxy Listener": "启用代理监听",
   "Capturing this computer": "本机抓包中",

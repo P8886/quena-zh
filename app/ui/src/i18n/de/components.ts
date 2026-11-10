@@ -1,5 +1,7 @@
 // German translations: components.
 export const components: Record<string, string> = {
+  "Allow legacy TLS cipher compatibility": "Ältere TLS-Verschlüsselungsverfahren unterstützen",
+  "If modern TLS algorithm negotiation fails, retry with system TLS 1.2 and HTTP/1.1. Certificate verification still applies, and HTTPS decryption and breakpoints remain available.": "Wenn die moderne TLS-Algorithmenaushandlung fehlschlägt, mit System-TLS 1.2 und HTTP/1.1 erneut versuchen. Die Zertifikatsprüfung gilt weiterhin; HTTPS-Entschlüsselung und Haltepunkte bleiben verfügbar.",
   "Capture This Computer": "Diesen Computer aufzeichnen",
   "Enable Proxy Listener": "Proxy-Listener aktivieren",
   "Capturing this computer": "Lokale Aufzeichnung aktiv",

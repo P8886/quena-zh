@@ -90,8 +90,12 @@ In *Capture → HTTPS Settings…* (and *Settings → HTTPS*):
 |---|---|
 | *Decrypt traffic from* | *all processes*, *browsers only*, *non-browsers only* or *remote clients only*. |
 | *Skip decryption for* | Hosts that stay tunnels, `;`-separated with wildcards, e.g. `*.bank.example; login.live.com`. |
+| *Allow legacy TLS cipher compatibility* | On by default. When a server rejects modern TLS algorithm negotiation, retry the upstream handshake using system TLS 1.2, including AES-CBC, and HTTP/1.1. Certificate verification and client certificates still apply, using the OS trust store on compatibility connections. Decryption and breakpoints continue to work. Certificate failures and timeouts do not trigger a retry; forced HTTP/2 connections do not downgrade. |
 | *Ignore server certificate errors (unsafe)* | Accept invalid server certificates. *Settings → HTTPS* also offers *Ignore certificate errors for* a list of hosts only. |
 | *Enable HTTP/2* | Offer HTTP/2 to clients and servers. *Settings → HTTPS → Downgrade to HTTP/1.1 for* lists hosts that should stay on HTTP/1.1. |
+
+System TLS compatibility connections record the server's leaf certificate, but their
+cipher name, full certificate chain and TLS key log are unavailable through this backend.
 
 Applications that pin certificates, or that bring their own trust store, reject Quena's
 certificate. Put their hosts into *Skip decryption for*. To see their HTTPS anyway, record

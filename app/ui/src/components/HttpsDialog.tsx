@@ -156,6 +156,9 @@ export function HttpsPanel() {
       <label className="f-check">
         <input type="checkbox" checked={h.enableHttp2} onChange={(e) => patchSettings((s) => (s.https.enableHttp2 = e.target.checked))} /> {t("Enable HTTP/2")}
       </label>
+      <label className="f-check" title={t("If modern TLS algorithm negotiation fails, retry with system TLS 1.2 and HTTP/1.1. Certificate verification still applies, and HTTPS decryption and breakpoints remain available.")}>
+        <input type="checkbox" checked={h.legacyTlsFallback !== false} onChange={(e) => patchSettings((s) => (s.https.legacyTlsFallback = e.target.checked))} /> {t("Allow legacy TLS cipher compatibility")}
+      </label>
       <fieldset className="f-section">
         <legend>{t("Client certificates (mTLS)")}</legend>
         <p className="muted small">{t("Presented to matching upstream hosts. Cert and key are PEM files (may be the same file).")}</p>

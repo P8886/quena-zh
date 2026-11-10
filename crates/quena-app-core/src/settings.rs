@@ -337,6 +337,8 @@ pub struct HttpsSettings {
     /// Hosts for which upstream certificate errors are ignored.
     pub ignore_cert_errors_hosts: String,
     pub enable_http2: bool,
+    /// Retry TLS negotiation failures using the OS TLS implementation (TLS 1.2 only).
+    pub legacy_tls_fallback: bool,
     /// Hosts for which HTTP/2 is downgraded to HTTP/1.1.
     pub http2_downgrade_hosts: String,
     /// Client certificates (mTLS) presented to matching upstream hosts.
@@ -375,6 +377,7 @@ impl Default for HttpsSettings {
             ignore_cert_errors: false,
             ignore_cert_errors_hosts: String::new(),
             enable_http2: true,
+            legacy_tls_fallback: true,
             http2_downgrade_hosts: String::new(),
             client_certs: Vec::new(),
             tls_key_log_file: String::new(),

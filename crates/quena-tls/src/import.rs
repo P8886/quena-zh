@@ -142,6 +142,15 @@ fn key_pair(pkcs8: &[u8]) -> Result<KeyPair> {
     KeyPair::try_from(pkcs8).map_err(|_| other("the key type is not supported (RSA, ECDSA P-256/P-384 and Ed25519 are)"))
 }
 
+pub(super) fn key_to_pkcs8(key: &rustls::pki_types::PrivateKeyDer<'_>) -> Result<Vec<u8>> {
+    match key {
+        rustls::pki_types::PrivateKeyDer::Pkcs8(k) => Ok(k.secret_pkcs8_der().to_vec()),
+        rustls::pki_types::PrivateKeyDer::Pkcs1(k) => Ok(pkcs1_to_pkcs8(k.secret_pkcs1_der())),
+        rustls::pki_types::PrivateKeyDer::Sec1(k) => sec1_to_pkcs8(k.secret_sec1_der()),
+        _ => Err(other("unsupported key format")),
+    }
+}
+
 // ------------------------------------------------------------------ reading CAs
 
 /// A CA from PEM: `cert_pem` holds the CA certificate and optionally its chain (in any
@@ -151,12 +160,7 @@ pub fn ca_from_pem(cert_pem: &str, key_pem: &str) -> Result<CaMaterial> {
         return Err(other("the key is encrypted; export it without a password, or import a .p12 file with its password instead"));
     }
     let key = rustls_pemfile::private_key(&mut key_pem.as_bytes())?.ok_or_else(|| other("no private key found in the key file"))?;
-    let key_pkcs8 = match &key {
-        rustls::pki_types::PrivateKeyDer::Pkcs8(k) => k.secret_pkcs8_der().to_vec(),
-        rustls::pki_types::PrivateKeyDer::Pkcs1(k) => pkcs1_to_pkcs8(k.secret_pkcs1_der()),
-        rustls::pki_types::PrivateKeyDer::Sec1(k) => sec1_to_pkcs8(k.secret_sec1_der())?,
-        _ => return Err(other("unsupported key format")),
-    };
+    let key_pkcs8 = key_to_pkcs8(&key)?;
     let certs: Vec<Vec<u8>> = rustls_pemfile::certs(&mut cert_pem.as_bytes()).map(|c| c.map(|c| c.to_vec())).collect::<std::result::Result<_, _>>()?;
     pick(certs, key_pkcs8)
 }

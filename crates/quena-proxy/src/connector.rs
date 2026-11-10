@@ -36,6 +36,7 @@ pub struct ConnInfo {
 pub enum Stream {
     Plain(TokioIo<TcpStream>),
     Tls(Box<TokioIo<TlsStream<TcpStream>>>),
+    NativeTls(Box<TokioIo<tokio_native_tls::TlsStream<TcpStream>>>),
 }
 
 pub struct MaybeTls {
@@ -60,6 +61,7 @@ impl hyper::rt::Read for MaybeTls {
         match &mut self.get_mut().stream {
             Stream::Plain(s) => Pin::new(s).poll_read(cx, buf),
             Stream::Tls(s) => Pin::new(&mut **s).poll_read(cx, buf),
+            Stream::NativeTls(s) => Pin::new(&mut **s).poll_read(cx, buf),
         }
     }
 }
@@ -69,30 +71,35 @@ impl hyper::rt::Write for MaybeTls {
         match &mut self.get_mut().stream {
             Stream::Plain(s) => Pin::new(s).poll_write(cx, buf),
             Stream::Tls(s) => Pin::new(&mut **s).poll_write(cx, buf),
+            Stream::NativeTls(s) => Pin::new(&mut **s).poll_write(cx, buf),
         }
     }
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
         match &mut self.get_mut().stream {
             Stream::Plain(s) => Pin::new(s).poll_flush(cx),
             Stream::Tls(s) => Pin::new(&mut **s).poll_flush(cx),
+            Stream::NativeTls(s) => Pin::new(&mut **s).poll_flush(cx),
         }
     }
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
         match &mut self.get_mut().stream {
             Stream::Plain(s) => Pin::new(s).poll_shutdown(cx),
             Stream::Tls(s) => Pin::new(&mut **s).poll_shutdown(cx),
+            Stream::NativeTls(s) => Pin::new(&mut **s).poll_shutdown(cx),
         }
     }
     fn poll_write_vectored(self: Pin<&mut Self>, cx: &mut Context<'_>, bufs: &[std::io::IoSlice<'_>]) -> Poll<std::io::Result<usize>> {
         match &mut self.get_mut().stream {
             Stream::Plain(s) => Pin::new(s).poll_write_vectored(cx, bufs),
             Stream::Tls(s) => Pin::new(&mut **s).poll_write_vectored(cx, bufs),
+            Stream::NativeTls(s) => Pin::new(&mut **s).poll_write_vectored(cx, bufs),
         }
     }
     fn is_write_vectored(&self) -> bool {
         match &self.stream {
             Stream::Plain(s) => s.is_write_vectored(),
             Stream::Tls(s) => s.is_write_vectored(),
+            Stream::NativeTls(s) => s.is_write_vectored(),
         }
     }
 }
@@ -272,6 +279,30 @@ pub fn cert_warning(not_after: Option<i64>, days: u32, now: i64) -> Option<Strin
     (days > 0 && left < days as i64).then(|| format!("certificate expires on {} (in {left} days)", quena_tls::date(na)))
 }
 
+/// A certificate failure, timeout or reset must not trigger an algorithm downgrade.
+fn legacy_tls_negotiation_error(error: &std::io::Error) -> bool {
+    matches!(error.get_ref().and_then(|e| e.downcast_ref::<rustls::Error>()),
+        Some(rustls::Error::AlertReceived(rustls::AlertDescription::HandshakeFailure | rustls::AlertDescription::InsufficientSecurity)))
+}
+
+fn native_tls_info(stream: &tokio_native_tls::TlsStream<TcpStream>, host: &str) -> Result<TlsInfo, BoxError> {
+    let cert = stream.get_ref().peer_certificate()?.map(|cert| cert.to_der()).transpose()?;
+    let facts = cert.as_deref().and_then(quena_tls::cert_facts);
+    Ok(TlsInfo {
+        // The compatibility connector pins both bounds to TLS 1.2. native-tls does
+        // not expose the selected cipher or the full peer chain; do not invent them.
+        version: "TLS 1.2".into(),
+        cipher: String::new(),
+        sni: Some(host.to_string()),
+        alpn: stream.get_ref().negotiated_alpn()?.map(|p| String::from_utf8_lossy(&p).into_owned()),
+        server_chain_pem: cert.map(|c| vec![quena_tls::der_to_pem(&c)]).unwrap_or_default(),
+        not_after: facts.as_ref().map(|f| f.not_after),
+        subject: facts.as_ref().map(|f| f.subject.clone()),
+        issuer: facts.as_ref().map(|f| f.issuer.clone()),
+        warning: None,
+    })
+}
+
 impl tower_service::Service<Uri> for Connector {
     type Response = MaybeTls;
     type Error = BoxError;
@@ -295,23 +326,21 @@ impl tower_service::Service<Uri> for Connector {
             let remapped = cfg.remap(&host, port);
             let (conn_host, conn_port) = remapped.as_ref().map(|r| (r.host.clone(), r.port)).unwrap_or_else(|| (host.clone(), port));
             let upstream = if remapped.is_some() { None } else { crate::resolve_upstream(&cfg, format!("{host}:{port}")).await };
-            let (mut tcp, dns_ms, tcp_ms, server_addr, gateway) = match &upstream {
-                Some((ph, pp)) => {
-                    let (s, d, t, a) = tcp_connect(ph, *pp).await.map_err(|e| format!("upstream proxy {ph}:{pp}: {e}"))?;
-                    (s, d, t, a, Some(format!("{ph}:{pp}")))
-                }
-                None => {
-                    let (s, d, t, a) = tcp_connect(&conn_host, conn_port).await?;
-                    (s, d, t, a, None)
+            // Reuse the exact route on a TLS retry, including host remapping and PAC.
+            let dial = || async {
+                match &upstream {
+                    Some((ph, pp)) => tcp_connect(ph, *pp).await.map_err(|e| std::io::Error::other(format!("upstream proxy {ph}:{pp}: {e}"))),
+                    None => tcp_connect(&conn_host, conn_port).await,
                 }
             };
-            let info = |tls_ms, tls: Option<TlsInfo>| ConnInfo {
-                server_addr: server_addr.clone(),
+            let (mut tcp, dns_ms, tcp_ms, server_addr) = dial().await?;
+            let mut info = ConnInfo {
+                server_addr,
                 dns_ms,
                 tcp_ms,
-                tls_ms,
-                tls,
-                gateway: gateway.clone(),
+                tls_ms: 0,
+                tls: None,
+                gateway: upstream.as_ref().map(|(h, p)| format!("{h}:{p}")),
                 used: Arc::new(AtomicBool::new(false)),
                 connect_start,
                 connected_at: quena_model::now_us(),
@@ -323,7 +352,7 @@ impl tower_service::Service<Uri> for Connector {
                 if h2c && upstream.is_some() {
                     return Err("HTTP/2 without TLS (h2c) cannot go through the upstream proxy".into());
                 }
-                return Ok(MaybeTls { stream: Stream::Plain(TokioIo::new(tcp)), proxied: upstream.is_some(), h2: h2c, info: info(0, None) });
+                return Ok(MaybeTls { stream: Stream::Plain(TokioIo::new(tcp)), proxied: upstream.is_some(), h2: h2c, info });
             }
             if upstream.is_some() {
                 connect_via_proxy(&mut tcp, &host, port).await?;
@@ -337,26 +366,66 @@ impl tower_service::Service<Uri> for Connector {
                 config = Arc::new(c);
             }
             let name = quena_tls::server_name(&host)?;
-            let s = tokio::time::timeout(CONNECT_TIMEOUT, tokio_rustls::TlsConnector::from(config).connect(name, tcp))
+            let result = tokio::time::timeout(CONNECT_TIMEOUT, tokio_rustls::TlsConnector::from(config).connect(name, tcp))
                 .await
-                .map_err(|_| "TLS handshake timed out")?
-                .map_err(|e| format!("TLS handshake with {host} failed: {e}"))?;
-            let tls_ms = t.elapsed().as_millis() as u32;
-            let (_, conn) = s.get_ref();
-            let negotiated_h2 = conn.alpn_protocol() == Some(b"h2");
+                .map_err(|_| "TLS handshake timed out")?;
+            info.tls_ms = t.elapsed().as_millis() as u32;
+            let (stream, mut ti) = match result {
+                Ok(s) => {
+                    let ti = tls_info(s.get_ref().1, &host);
+                    (Stream::Tls(Box::new(TokioIo::new(s))), ti)
+                }
+                Err(e) if cfg.legacy_tls_fallback && force_h2 != Some(true) && legacy_tls_negotiation_error(&e) => {
+                    tracing::debug!(target: "quena::tls", "{host}: TLS negotiation failed ({e}); retrying with system TLS 1.2");
+                    // Importing an mTLS identity can access the system keychain.
+                    let native_host = host.clone();
+                    let insecure = cfg.insecure_host(&host);
+                    let native = tokio::task::spawn_blocking(move || tls.native_for_host(&native_host, insecure, quena_query::glob_match)).await??;
+                    // The failed handshake consumed its TCP stream. No HTTP request has
+                    // been sent, so reconnecting here never resubmits a POST or its body.
+                    let (mut tcp, dns, connect, addr) = dial().await?;
+                    info.dns_ms = info.dns_ms.saturating_add(dns);
+                    info.tcp_ms = info.tcp_ms.saturating_add(connect);
+                    info.server_addr = addr;
+                    if upstream.is_some() {
+                        connect_via_proxy(&mut tcp, &host, port).await?;
+                    }
+                    let t = Instant::now();
+                    let s = tokio::time::timeout(CONNECT_TIMEOUT, tokio_native_tls::TlsConnector::from(native).connect(&host, tcp))
+                        .await.map_err(|_| format!("system TLS handshake with {host} timed out"))?
+                        .map_err(|native| format!("TLS handshake with {host} failed: {e}; system TLS compatibility retry failed: {native}"))?;
+                    info.tls_ms = info.tls_ms.saturating_add(t.elapsed().as_millis() as u32);
+                    let ti = native_tls_info(&s, &host)?;
+                    (Stream::NativeTls(Box::new(TokioIo::new(s))), ti)
+                }
+                Err(e) => return Err(format!("TLS handshake with {host} failed: {e}").into()),
+            };
+            let negotiated_h2 = ti.alpn.as_deref() == Some("h2");
             if force_h2 == Some(true) && !negotiated_h2 {
                 return Err(format!("{host} does not offer HTTP/2").into());
             }
-            let mut ti = tls_info(conn, &host);
             ti.warning = cert_warning(ti.not_after, cfg.cert_warn_days, quena_model::now_us() / 1_000_000);
-            Ok(MaybeTls { stream: Stream::Tls(Box::new(TokioIo::new(s))), proxied: false, h2: negotiated_h2, info: info(tls_ms, Some(ti)) })
+            info.tls = Some(ti);
+            info.connected_at = quena_model::now_us();
+            Ok(MaybeTls { stream, proxied: false, h2: negotiated_h2, info })
         })
     }
 }
 
 #[cfg(test)]
-mod self_addr_tests {
+mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_tls_retry_only_follows_explicit_negotiation_alerts() {
+        let error = |alert| std::io::Error::other(rustls::Error::AlertReceived(alert));
+        assert!(legacy_tls_negotiation_error(&error(rustls::AlertDescription::HandshakeFailure)));
+        assert!(legacy_tls_negotiation_error(&error(rustls::AlertDescription::InsufficientSecurity)));
+        assert!(!legacy_tls_negotiation_error(&error(rustls::AlertDescription::BadCertificate)));
+        assert!(!legacy_tls_negotiation_error(&std::io::Error::other(rustls::Error::InvalidCertificate(rustls::CertificateError::UnknownIssuer))));
+        assert!(!legacy_tls_negotiation_error(&std::io::ErrorKind::TimedOut.into()));
+        assert!(!legacy_tls_negotiation_error(&std::io::ErrorKind::ConnectionReset.into()));
+    }
 
     #[test]
     fn own_listeners_by_address_and_family() {
