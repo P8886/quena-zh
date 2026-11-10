@@ -48,10 +48,10 @@ export function StatusBar() {
 
   return (
     <div className="statusbar">
-      <div className={`sb-cell sb-capture ${eng?.capturing ? "on" : ""}`} onClick={() => actions.toggleCapture()} title={eng?.listen.join(", ") || t("Not capturing")}>
+      <div className={`sb-cell sb-capture ${eng?.systemProxy ? "on" : ""}`} onClick={() => actions.toggleSystemProxy()} title={t("Toggle this computer's system proxy (F12). Device connections keep running.")}>
         <span className="sb-dot" />
-        {eng?.capturing ? `Proxy ${eng.listen[0] ?? ""}` : t("Not capturing")}
-        {eng?.systemProxy && <span className="sb-tag">{t("system proxy")}</span>}
+        {eng?.systemProxy ? t("Capturing this computer") : t("Local capture off")}
+        {eng?.capturing && <span className="sb-tag">Proxy {eng.listen[0] ?? ""}</span>}
         {eng?.decrypting && <span className="sb-tag">{t("HTTPS decrypt")}</span>}
       </div>
       <button

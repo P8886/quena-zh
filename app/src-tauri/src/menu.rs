@@ -6,10 +6,37 @@
 
 use tauri::menu::{AboutMetadata, CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use crate::i18n::tr;
-use tauri::{AppHandle, Wry};
+use tauri::{AppHandle, Manager, Wry};
 
 fn item(app: &AppHandle, id: &str, text: &str, accel: Option<&str>) -> tauri::Result<MenuItem<Wry>> {
     MenuItem::with_id(app, id, tr(text), true, accel)
+}
+
+fn capture_status(app: &AppHandle) -> quena_app_core::EngineStatus {
+    app.state::<crate::Core>().engine().map(|engine| engine.status()).unwrap_or_default()
+}
+
+/// Native check items toggle themselves on click; the engine is the source of truth.
+pub fn sync_capture(app: &AppHandle) {
+    let handle = app.clone();
+    if let Err(e) = app.run_on_main_thread(move || {
+        let Some(menu) = handle.menu() else { return };
+        let Some(capture) = menu.get("capture") else { return };
+        let Some(capture) = capture.as_submenu() else { return };
+        // Read on the UI thread so queued status updates cannot restore an old state.
+        let status = capture_status(&handle);
+        for (id, on) in [("capture.system-proxy", status.system_proxy), ("file.capture", status.capturing)] {
+            let Some(item) = capture.get(id) else { continue };
+            let Some(item) = item.as_check_menuitem() else { continue };
+            if item.is_checked().ok() != Some(on)
+                && let Err(e) = item.set_checked(on)
+            {
+                tracing::debug!("update capture menu: {e}");
+            }
+        }
+    }) {
+        tracing::debug!("schedule capture menu update: {e}");
+    }
 }
 
 pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
@@ -153,12 +180,16 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         ],
     )?;
 
-    let capture = Submenu::with_items(
+    let status = capture_status(app);
+    let capture = Submenu::with_id_and_items(
         app,
+        "capture",
         tr("Capture"),
         true,
         &[
-            &CheckMenuItem::with_id(app, "file.capture", tr("Capture Traffic"), true, false, Some("F12"))?,
+            &CheckMenuItem::with_id(app, "capture.system-proxy", tr("Capture This Computer"), true, status.system_proxy, Some("F12"))?,
+            &CheckMenuItem::with_id(app, "file.capture", tr("Enable Proxy Listener"), true, status.capturing, None::<&str>)?,
+            &sep()?,
             &item(app, "tools.https", "HTTPS Settings…", None)?,
             &item(app, "tools.connect-device", "Connect Device…", None)?,
             &item(app, "tools.reverse-proxy", "Reverse Proxy…", None)?,

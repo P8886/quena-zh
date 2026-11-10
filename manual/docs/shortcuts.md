@@ -7,7 +7,7 @@ Shortcuts* shows this list in the app.
 
 | Action | Shortcut |
 |---|---|
-| Start / stop capturing | `F12` |
+| Toggle this computer's system proxy (device connections keep running) | `F12` |
 | Break before requests | `F11` |
 | Break after responses | `Alt F11` |
 | Breakpoints off | `Shift F11` |

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { beforeEach, expect, it, vi } from "vitest";
-import { api, type Settings } from "./api";
+import { api, type Settings, type Status } from "./api";
 import { actions } from "./actions";
 import { grid, rowCache } from "./grid/SessionGrid";
 import { get, set } from "./store";
@@ -17,7 +17,57 @@ beforeEach(() => {
   set({
     selection: new Set(), focusId: null, focusIndex: null, anchorIndex: null, activeTab: "inspectors",
     settings: null, listCount: 0, dialog: null, messageDrafts: {}, unlockedSessions: new Set(),
+    status: null, captureBusy: null, systemProxyBusy: null,
   });
+});
+
+it.each([true, false])("F12 toggles local capture to %s and refreshes the saved preference without stopping the listener", async (on) => {
+  const status = { engine: { capturing: true, systemProxy: on } } as Status;
+  const settings = { proxy: { actAsSystemProxy: on } } as Settings;
+  set({ status: { engine: { capturing: true, systemProxy: !on } } as Status });
+  const toggle = vi.spyOn(api, "toggleSystemProxy").mockResolvedValue(on);
+  const stopListener = vi.spyOn(api, "toggleCapture");
+  vi.spyOn(api, "status").mockResolvedValue(status);
+  vi.spyOn(api, "settingsGet").mockResolvedValue(settings);
+
+  await actions.menu("capture.system-proxy");
+
+  expect(toggle).toHaveBeenCalledOnce();
+  expect(stopListener).not.toHaveBeenCalled();
+  expect(get()).toMatchObject({ status, settings, systemProxyBusy: null });
+});
+
+it("ignores repeated F12 and listener toggles while the OS proxy change is pending", async () => {
+  let finish!: (on: boolean) => void;
+  const toggle = vi.spyOn(api, "toggleSystemProxy").mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  const stopListener = vi.spyOn(api, "toggleCapture");
+  vi.spyOn(api, "status").mockResolvedValue({ engine: { capturing: true, systemProxy: false } } as Status);
+  vi.spyOn(api, "settingsGet").mockResolvedValue({ proxy: { actAsSystemProxy: false } } as Settings);
+  set({ status: { engine: { capturing: true, systemProxy: true } } as Status });
+
+  const first = actions.toggleSystemProxy();
+  expect(get().systemProxyBusy).toBe("stopping");
+  await actions.toggleSystemProxy();
+  await actions.toggleCapture();
+  expect(toggle).toHaveBeenCalledOnce();
+  expect(stopListener).not.toHaveBeenCalled();
+  finish(false);
+  await first;
+  expect(get().systemProxyBusy).toBeNull();
+});
+
+it("shows an OS proxy failure and refreshes actual state even when the preference was saved", async () => {
+  const status = { engine: { capturing: true, systemProxy: true, error: "restore denied" } } as Status;
+  const settings = { proxy: { actAsSystemProxy: false } } as Settings;
+  vi.spyOn(api, "toggleSystemProxy").mockRejectedValue(new Error("restore denied"));
+  vi.spyOn(api, "status").mockResolvedValue(status);
+  vi.spyOn(api, "settingsGet").mockResolvedValue(settings);
+  set({ status: { engine: { capturing: true, systemProxy: true } } as Status });
+
+  await actions.toggleSystemProxy();
+
+  expect(get()).toMatchObject({ status, settings, systemProxyBusy: null });
+  expect(get().message).toMatchObject({ kind: "error", text: "Error: restore denied" });
 });
 
 it("keeps the manually selected session and current tab when new requests pause", async () => {

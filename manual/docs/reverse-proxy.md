@@ -27,7 +27,7 @@ a gateway in front of a backend, and you can change that gateway's traffic.
    `https://api.example.com/v1`.
 4. Click **Add**. Adding the first entry also switches on **Enable reverse proxy ports**.
 
-The ports listen **while capturing**. They start and stop with *Capture Traffic* (`F12`),
+The ports listen **while the proxy is running**. They start and stop with *Enable Proxy Listener*,
 together with the proxy port. The status bar shows how many reverse proxies are running
 (*⇄ 1 reverse proxy*); click it to open the dialog. **Copy address** copies the address
 clients call.

@@ -147,7 +147,8 @@ fn de(en: &str) -> Option<&'static str> {
         "Command Syntax" => "Befehlssyntax",
         "Keyboard Shortcuts" => "Tastenkürzel",
         "Coming from Fiddler Classic…" => "Umstieg von Fiddler Classic…",
-        "Capture Traffic" => "Verkehr aufzeichnen",
+        "Capture This Computer" => "Diesen Computer aufzeichnen",
+        "Enable Proxy Listener" => "Proxy-Listener aktivieren",
         "Quena" => "Quena",
         "File" => "Datei",
         "Save" => "Speichern",
@@ -305,7 +306,8 @@ fn zh(en: &str) -> Option<&'static str> {
         "Command Syntax" => "命令语法",
         "Keyboard Shortcuts" => "键盘快捷键",
         "Coming from Fiddler Classic…" => "Fiddler Classic 用户指南…",
-        "Capture Traffic" => "抓包",
+        "Capture This Computer" => "抓取本机流量",
+        "Enable Proxy Listener" => "启用代理监听",
         "Quena" => "Quena",
         "File" => "文件",
         "Save" => "保存",
@@ -349,6 +351,8 @@ mod chinese_tests {
     fn chinese_native_menu_and_fallback() {
         assert_eq!(zh("Settings…"), Some("设置…"));
         assert_eq!(zh("Capture"), Some("抓包"));
+        assert_eq!(zh("Capture This Computer"), Some("抓取本机流量"));
+        assert_eq!(zh("Enable Proxy Listener"), Some("启用代理监听"));
         assert_eq!(zh("Unknown menu item"), None);
     }
 }

@@ -1482,6 +1482,7 @@ export const api = {
   mockStop: () => invoke<void>("mock_stop"),
   mockBig: (scale: number) => invoke<void>("mock_big", { scale }),
   toggleCapture: () => invoke<boolean>("toggle_capture"),
+  toggleSystemProxy: () => invoke<boolean>("toggle_system_proxy"),
   recoverable: () => invoke<Recoverable[]>("recoverable"),
   recover: (dir: string) => invoke<void>("recover", { dir }),
   discard: (dir: string) => invoke<void>("discard", { dir }),

@@ -536,7 +536,10 @@ export class GridController {
       ctx.fillStyle = p.muted;
       ctx.font = FONT;
       ctx.textAlign = "center";
-      ctx.fillText(get().status?.engine.capturing ? t("Waiting for traffic…") : t("No sessions. Press F12 to start capturing."), this.vw / 2, 40);
+      const engine = get().status?.engine;
+      const empty = !engine?.capturing ? t("No sessions. Press F12 to start capturing.")
+        : engine.systemProxy ? t("Waiting for traffic…") : t("Waiting for proxy clients; F12 captures this computer.");
+      ctx.fillText(empty, this.vw / 2, 40);
       ctx.textAlign = "left";
     }
   }

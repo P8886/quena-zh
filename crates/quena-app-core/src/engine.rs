@@ -14,6 +14,7 @@ use std::sync::Arc;
 
 pub struct ProxyEngine {
     pub proxy: Arc<Proxy>,
+    system_proxy: Arc<dyn SystemProxyControl>,
     ca: RwLock<Option<Arc<CertAuthority>>>,
     data_dir: PathBuf,
     state: Mutex<State>,
@@ -24,9 +25,8 @@ pub struct ProxyEngine {
 
 #[derive(Default)]
 struct State {
-    system_proxy: bool,
-    /// The exceptions the system proxy was given (set again when they change).
-    system_bypass: Vec<String>,
+    /// The port and exceptions last applied to the OS, independent of saved preferences.
+    system_proxy: Option<SystemProxyConfig>,
     upstream: Option<String>,
     error: Option<String>,
     /// System proxy found before Quena took over (used as upstream).
@@ -34,6 +34,30 @@ struct State {
     /// That proxy's exceptions: hosts the system reached directly, so Quena does too.
     detected_bypass: Vec<String>,
     pac_url: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SystemProxyConfig {
+    port: u16,
+    bypass: Vec<String>,
+}
+
+/// Keep OS changes at the integration boundary so lifecycle tests never change the host.
+trait SystemProxyControl: Send + Sync {
+    fn set(&self, port: u16, bypass: &[String], backup: &std::path::Path) -> quena_platform::Result<()>;
+    fn restore(&self, backup: &std::path::Path) -> quena_platform::Result<bool>;
+}
+
+struct PlatformSystemProxy;
+
+impl SystemProxyControl for PlatformSystemProxy {
+    fn set(&self, port: u16, bypass: &[String], backup: &std::path::Path) -> quena_platform::Result<()> {
+        quena_platform::set_system_proxy(port, bypass, backup)
+    }
+
+    fn restore(&self, backup: &std::path::Path) -> quena_platform::Result<bool> {
+        quena_platform::restore_system_proxy(backup)
+    }
 }
 
 /// Exceptions Quena writes into the system proxy settings while capturing. macOS and Linux
@@ -192,13 +216,17 @@ fn parse_prefer(s: &str) -> Vec<quena_proxy::Scheme> {
 
 impl ProxyEngine {
     pub fn new(core: &Arc<AppCore>) -> Result<Arc<ProxyEngine>> {
+        Self::with_system_proxy(core, Arc::new(PlatformSystemProxy))
+    }
+
+    fn with_system_proxy(core: &Arc<AppCore>, system_proxy: Arc<dyn SystemProxyControl>) -> Result<Arc<ProxyEngine>> {
         let data = core.paths.data.clone();
         // Browsers open many connections; the default soft limit (256 on macOS) is too low.
         if let Some(n) = quena_platform::raise_fd_limit(2 * quena_proxy::MAX_CLIENT_CONNECTIONS as u64 + 1024) {
             tracing::debug!(target: "quena", "open-file limit {n}");
         }
         // Crash recovery: a previous run left the system proxy pointing to us.
-        match quena_platform::restore_system_proxy(&backup_path(&data)) {
+        match system_proxy.restore(&backup_path(&data)) {
             Ok(true) => tracing::warn!(target: "quena", "restored the system proxy left over by a previous run"),
             Ok(false) => {}
             Err(e) => tracing::error!(target: "quena", "restoring the system proxy failed: {e}"),
@@ -221,6 +249,7 @@ impl ProxyEngine {
         proxy.set_credential_resolver(Arc::new(crate::auth::AppCredentials::new(core.clone())));
         let e = Arc::new(ProxyEngine {
             proxy,
+            system_proxy,
             ca: RwLock::new(ca),
             data_dir: data,
             state: Mutex::new(State { detected_upstream: detected.0, pac_url: detected.1, detected_bypass: detected.2, ..Default::default() }),
@@ -344,6 +373,56 @@ impl ProxyEngine {
             addresses: quena_platform::local_addresses(),
             ca_sha256: self.ca.read().as_ref().map(|c| c.sha256_fingerprint()),
         }
+    }
+
+    /// Attach/detach the computer without restarting listeners or closing device traffic.
+    fn sync_system_proxy(&self, s: &Settings) -> Result<()> {
+        let desired = self.proxy.listen_addrs().first().filter(|_| s.proxy.act_as_system_proxy)
+            .map(|addr| SystemProxyConfig { port: addr.port(), bypass: system_bypass(s) });
+        let unchanged = {
+            let st = self.state.lock();
+            st.system_proxy == desired && st.error.is_none()
+        };
+        if unchanged {
+            return Ok(());
+        }
+        let Some(config) = desired else { return self.restore_system_proxy() };
+        if let Err(e) = self.system_proxy.set(config.port, &config.bypass, &backup_path(&self.data_dir)) {
+            // A failed attach can have changed some network services. Restore the backup,
+            // retaining ownership if rollback fails so a later save/stop can retry.
+            let restored = self.system_proxy.restore(&backup_path(&self.data_dir));
+            let message = match &restored {
+                Ok(_) => format!("system proxy: {e}"),
+                Err(restore) => format!("system proxy: {e}; restore system proxy: {restore}"),
+            };
+            let mut st = self.state.lock();
+            st.system_proxy = restored.is_err().then_some(config);
+            st.error = Some(message.clone());
+            return Err(anyhow!(message));
+        }
+        let mut st = self.state.lock();
+        st.system_proxy = Some(config);
+        st.error = None;
+        Ok(())
+    }
+
+    fn restore_system_proxy(&self) -> Result<()> {
+        if self.state.lock().system_proxy.is_none() {
+            self.state.lock().error = None;
+            return Ok(());
+        }
+        let result = self.system_proxy.restore(&backup_path(&self.data_dir))
+            .context("restore system proxy")
+            .and_then(|restored| if restored { Ok(()) } else { Err(anyhow!("restore system proxy: backup is missing")) });
+        let mut st = self.state.lock();
+        match &result {
+            Ok(()) => {
+                st.system_proxy = None;
+                st.error = None;
+            }
+            Err(e) => st.error = Some(format!("{e:#}")),
+        }
+        result
     }
 
     fn apply(&self, core: &Arc<AppCore>) -> Result<()> {
@@ -471,7 +550,7 @@ impl CaptureEngine for ProxyEngine {
             crate::bypass::refresh_vpn();
         }
         self.apply(core)?;
-        let addrs = match self.proxy.start() {
+        match self.proxy.start() {
             Ok(a) => a,
             Err(e) => {
                 self.state.lock().error = Some(e.to_string());
@@ -479,35 +558,17 @@ impl CaptureEngine for ProxyEngine {
             }
         };
         self.state.lock().error = None;
-        let s = core.settings();
-        if s.proxy.act_as_system_proxy {
-            let port = addrs[0].port();
-            let bypass = system_bypass(&s);
-            match quena_platform::set_system_proxy(port, &bypass, &backup_path(&self.data_dir)) {
-                Ok(()) => {
-                    let mut st = self.state.lock();
-                    st.system_proxy = true;
-                    st.system_bypass = bypass;
-                }
-                Err(e) => {
-                    // Some services may already point to us: undo the partial change.
-                    let _ = quena_platform::restore_system_proxy(&backup_path(&self.data_dir));
-                    tracing::warn!(target: "quena", "could not set the system proxy: {e} – configure clients to use 127.0.0.1:{port} manually");
-                    self.state.lock().error = Some(format!("system proxy: {e}"));
-                }
-            }
+        if let Err(e) = self.sync_system_proxy(&core.settings()) {
+            // Explicitly configured clients can still use the listener.
+            tracing::warn!(target: "quena", "could not set the system proxy: {e:#}");
         }
         Ok(())
     }
 
     fn stop(&self, _core: &Arc<AppCore>) -> Result<()> {
-        let was_system = std::mem::take(&mut self.state.lock().system_proxy);
-        if was_system {
-            if let Err(e) = quena_platform::restore_system_proxy(&backup_path(&self.data_dir)) {
-                tracing::error!(target: "quena", "restoring the system proxy failed: {e}");
-                self.state.lock().error = Some(format!("restore system proxy: {e}"));
-            }
-        }
+        // Keep serving clients if restoring the OS fails, rather than leaving it pointing
+        // at a closed port. The saved backup and runtime state allow another attempt.
+        self.restore_system_proxy()?;
         self.proxy.stop();
         Ok(())
     }
@@ -518,7 +579,7 @@ impl CaptureEngine for ProxyEngine {
         EngineStatus {
             capturing: self.proxy.is_running(),
             listen: self.proxy.listen_addrs().iter().map(|a| a.to_string()).collect(),
-            system_proxy: st.system_proxy,
+            system_proxy: st.system_proxy.is_some(),
             decrypting: cfg.decrypt && self.ca.read().is_some(),
             upstream: st.upstream.clone(),
             error: st.error.clone(),
@@ -531,24 +592,11 @@ impl CaptureEngine for ProxyEngine {
     }
 
     fn reconfigure(&self, core: &Arc<AppCore>) -> Result<()> {
-        let was_running = self.proxy.is_running();
-        let old_port = self.proxy.listen_addrs().first().map(|a| a.port());
-        self.apply(core)?;
-        // Port or exceptions changed while acting as system proxy: tell the OS.
-        let new_port = self.proxy.listen_addrs().first().map(|a| a.port());
-        let bypass = system_bypass(&core.settings());
-        let (system, changed) = {
-            let st = self.state.lock();
-            (st.system_proxy, st.system_bypass != bypass)
-        };
-        if was_running && system && (old_port != new_port || changed) {
-            if let Some(p) = new_port
-                && quena_platform::set_system_proxy(p, &bypass, &backup_path(&self.data_dir)).is_ok()
-            {
-                self.state.lock().system_bypass = bypass;
-            }
+        let result = self.apply(core).and_then(|_| self.sync_system_proxy(&core.settings()));
+        if let Err(e) = &result {
+            self.state.lock().error = Some(format!("{e:#}"));
         }
-        Ok(())
+        result
     }
 
     fn capture_changed(&self, core: &Arc<AppCore>) {
@@ -567,6 +615,314 @@ pub fn pac_url(e: &ProxyEngine) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Read, Write};
+    use std::net::{TcpListener, TcpStream};
+    use std::time::Duration;
+
+    #[derive(Default)]
+    struct FakeProxyState {
+        current: Option<SystemProxyConfig>,
+        backup: Option<Option<SystemProxyConfig>>,
+        fail_set: bool,
+        fail_restore: bool,
+        set_calls: usize,
+    }
+
+    #[derive(Default)]
+    struct FakeSystemProxy(Mutex<FakeProxyState>);
+
+    impl SystemProxyControl for FakeSystemProxy {
+        fn set(&self, port: u16, bypass: &[String], _backup: &std::path::Path) -> quena_platform::Result<()> {
+            let mut st = self.0.lock();
+            let previous = st.current.clone();
+            st.backup.get_or_insert(previous);
+            st.current = Some(SystemProxyConfig { port, bypass: bypass.to_vec() });
+            st.set_calls += 1;
+            // Model a partial OS change before failure, rather than a harmless no-op.
+            if std::mem::take(&mut st.fail_set) {
+                return Err(quena_platform::PlatformError::Command("attach denied".into()));
+            }
+            Ok(())
+        }
+
+        fn restore(&self, _backup: &std::path::Path) -> quena_platform::Result<bool> {
+            let mut st = self.0.lock();
+            if std::mem::take(&mut st.fail_restore) {
+                return Err(quena_platform::PlatformError::Command("restore denied".into()));
+            }
+            let Some(previous) = st.backup.take() else { return Ok(false) };
+            st.current = previous;
+            Ok(true)
+        }
+    }
+
+    struct TestProxy {
+        core: Arc<AppCore>,
+        engine: Arc<ProxyEngine>,
+        system: Arc<FakeSystemProxy>,
+        original: SystemProxyConfig,
+        _dir: tempfile::TempDir,
+    }
+
+    impl TestProxy {
+        fn new(system_proxy: bool) -> Self {
+            let dir = tempfile::tempdir().unwrap();
+            let mut settings = Settings::default();
+            settings.proxy.port = 0;
+            settings.proxy.allow_remote = true;
+            settings.proxy.act_as_system_proxy = system_proxy;
+            settings.proxy.capture_on_startup = false;
+            settings.proxy.use_system_upstream = false;
+            settings.proxy.use_system_pac = false;
+            settings.save(&dir.path().join("settings.json")).unwrap();
+            let core = AppCore::new(crate::Paths::at(dir.path().to_path_buf()), crate::logbuf::LogBuffer::new(100)).unwrap();
+            let original = SystemProxyConfig { port: 3128, bypass: vec!["*.company.example".into()] };
+            let system = Arc::new(FakeSystemProxy(Mutex::new(FakeProxyState { current: Some(original.clone()), ..Default::default() })));
+            let engine = ProxyEngine::with_system_proxy(&core, system.clone()).unwrap();
+            core.set_proxy_engine(engine.clone());
+            Self { core, engine, system, original, _dir: dir }
+        }
+
+        fn assert_preference(&self, on: bool) {
+            assert_eq!(self.core.settings().proxy.act_as_system_proxy, on);
+            assert_eq!(Settings::load(&self.core.paths.settings).proxy.act_as_system_proxy, on);
+        }
+
+        fn assert_original_proxy(&self) {
+            assert_eq!(self.system.0.lock().current.as_ref(), Some(&self.original));
+        }
+
+        /// An established CONNECT tunnel stands in for a phone's persistent connection.
+        fn device_tunnel(&self) -> TcpStream {
+            let origin = TcpListener::bind("127.0.0.1:0").unwrap();
+            let target = origin.local_addr().unwrap();
+            std::thread::spawn(move || {
+                let (mut stream, _) = origin.accept().unwrap();
+                stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+                let mut buf = [0; 256];
+                while let Ok(n) = stream.read(&mut buf) {
+                    if n == 0 || stream.write_all(&buf[..n]).is_err() { break }
+                }
+            });
+            let addr = self.engine.proxy.listen_addrs().into_iter().find(|a| a.is_ipv4()).unwrap();
+            let mut client = TcpStream::connect(addr).unwrap();
+            client.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            client.set_write_timeout(Some(Duration::from_secs(5))).unwrap();
+            write!(client, "CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n\r\n").unwrap();
+            let mut head = Vec::new();
+            while !head.ends_with(b"\r\n\r\n") {
+                let mut byte = [0];
+                client.read_exact(&mut byte).unwrap();
+                head.push(byte[0]);
+                assert!(head.len() < 4096);
+            }
+            assert!(String::from_utf8_lossy(&head).starts_with("HTTP/1.1 200"));
+            assert_tunnel_works(&mut client);
+            client
+        }
+    }
+
+    impl Drop for TestProxy {
+        fn drop(&mut self) { self.core.shutdown(); }
+    }
+
+    fn assert_tunnel_works(client: &mut TcpStream) {
+        client.write_all(b"phone traffic").unwrap();
+        let mut reply = [0; 13];
+        client.read_exact(&mut reply).unwrap();
+        assert_eq!(&reply, b"phone traffic");
+    }
+
+    #[test]
+    fn system_proxy_settings_apply_live_without_interrupting_devices() {
+        let env = TestProxy::new(true);
+        env.core.start_capture().unwrap();
+        let listeners = env.engine.status().listen;
+        let mut device = env.device_tunnel();
+        let mut settings = env.core.settings();
+        settings.proxy.act_as_system_proxy = false;
+        env.core.update_settings(settings).unwrap();
+        assert!(!env.engine.status().system_proxy);
+        env.assert_preference(false);
+        env.assert_original_proxy();
+        assert!(env.engine.status().capturing);
+        assert_eq!(env.engine.status().listen, listeners);
+        assert_tunnel_works(&mut device);
+
+        let mut settings = env.core.settings();
+        settings.proxy.act_as_system_proxy = true;
+        env.core.update_settings(settings).unwrap();
+        assert!(env.engine.status().system_proxy);
+        assert_eq!(env.engine.status().listen, listeners);
+        assert_tunnel_works(&mut device);
+        env.assert_preference(true);
+        env.core.stop_capture().unwrap();
+        env.assert_original_proxy();
+    }
+
+    #[test]
+    fn f12_persists_local_capture_and_keeps_device_connections_alive() {
+        let env = TestProxy::new(false);
+        env.core.start_capture().unwrap();
+        let listeners = env.engine.status().listen;
+        let mut device = env.device_tunnel();
+        for expected in [true, false, true, false] {
+            assert_eq!(env.core.toggle_system_proxy().unwrap(), expected);
+            env.assert_preference(expected);
+            assert_eq!(env.engine.status().system_proxy, expected);
+            assert!(env.engine.status().capturing);
+            assert_eq!(env.engine.status().listen, listeners);
+            assert_tunnel_works(&mut device);
+        }
+        env.assert_original_proxy();
+        // A newly connected explicit client still works with local capture off.
+        assert_tunnel_works(&mut env.device_tunnel());
+    }
+
+    #[test]
+    fn saving_system_proxy_while_stopped_does_not_start_listener_but_f12_does() {
+        let env = TestProxy::new(false);
+        let mut settings = env.core.settings();
+        settings.proxy.act_as_system_proxy = true;
+        env.core.update_settings(settings).unwrap();
+        assert!(!env.engine.status().capturing);
+        assert!(!env.engine.status().system_proxy);
+        assert_eq!(env.system.0.lock().set_calls, 0);
+        env.assert_original_proxy();
+        assert!(env.core.toggle_system_proxy().unwrap());
+        assert!(env.engine.status().capturing);
+        assert!(env.engine.status().system_proxy);
+        env.assert_preference(true);
+        env.core.stop_capture().unwrap();
+        env.assert_original_proxy();
+    }
+
+    #[test]
+    fn system_proxy_port_and_bypass_follow_listener_changes() {
+        let env = TestProxy::new(true);
+        env.core.start_capture().unwrap();
+        let mut settings = env.core.settings();
+        let reservation = TcpListener::bind("127.0.0.1:0").unwrap();
+        settings.proxy.port = reservation.local_addr().unwrap().port();
+        settings.proxy.bypass_hosts = "skip.example.com".into();
+        drop(reservation);
+        env.core.update_settings(settings.clone()).unwrap();
+        {
+            let st = env.system.0.lock();
+            let applied = st.current.as_ref().unwrap();
+            assert_eq!(applied.port, settings.proxy.port);
+            assert!(applied.bypass.contains(&"skip.example.com".into()));
+        }
+        env.core.stop_capture().unwrap();
+        env.assert_original_proxy();
+    }
+
+    #[test]
+    fn failed_system_proxy_restore_keeps_runtime_state_and_identical_save_retries() {
+        let env = TestProxy::new(true);
+        env.core.start_capture().unwrap();
+        let mut device = env.device_tunnel();
+        env.system.0.lock().fail_restore = true;
+        let mut settings = env.core.settings();
+        settings.proxy.act_as_system_proxy = false;
+        assert!(env.core.update_settings(settings.clone()).is_err());
+        env.assert_preference(false);
+        assert!(env.engine.status().system_proxy);
+        assert!(env.engine.status().error.is_some());
+        assert_tunnel_works(&mut device);
+        env.core.update_settings(settings).unwrap();
+        assert!(!env.engine.status().system_proxy);
+        assert!(env.engine.status().error.is_none());
+        env.assert_original_proxy();
+        assert_tunnel_works(&mut device);
+    }
+
+    #[test]
+    fn failed_system_proxy_attach_rolls_back_and_identical_save_retries() {
+        let env = TestProxy::new(false);
+        env.core.start_capture().unwrap();
+        env.system.0.lock().fail_set = true;
+        let mut settings = env.core.settings();
+        settings.proxy.act_as_system_proxy = true;
+        assert!(env.core.update_settings(settings.clone()).is_err());
+        env.assert_preference(true);
+        assert!(!env.engine.status().system_proxy);
+        assert!(env.engine.status().error.is_some());
+        env.assert_original_proxy();
+        env.core.update_settings(settings).unwrap();
+        assert!(env.engine.status().system_proxy);
+        assert!(env.engine.status().error.is_none());
+        env.core.stop_capture().unwrap();
+        env.assert_original_proxy();
+    }
+
+    #[test]
+    fn failed_system_proxy_rollback_retains_backup_until_retry() {
+        let env = TestProxy::new(false);
+        env.core.start_capture().unwrap();
+        {
+            let mut st = env.system.0.lock();
+            st.fail_set = true;
+            st.fail_restore = true;
+        }
+        assert!(env.core.toggle_system_proxy().is_err());
+        assert!(env.engine.status().system_proxy);
+        assert!(env.engine.status().error.is_some());
+        // A second F12 turns local capture off, using the retained original backup.
+        assert!(!env.core.toggle_system_proxy().unwrap());
+        env.assert_preference(false);
+        env.assert_original_proxy();
+        assert!(env.engine.status().capturing);
+    }
+
+    #[test]
+    fn f12_reports_system_proxy_errors_when_starting_the_listener() {
+        for rollback_fails in [false, true] {
+            let env = TestProxy::new(false);
+            {
+                let mut st = env.system.0.lock();
+                st.fail_set = true;
+                st.fail_restore = rollback_fails;
+            }
+            assert!(env.core.toggle_system_proxy().is_err());
+            assert!(env.engine.status().capturing);
+            assert!(env.engine.status().error.is_some());
+            env.assert_preference(true);
+            env.core.update_settings(env.core.settings()).unwrap();
+            assert!(env.engine.status().system_proxy);
+            assert!(env.engine.status().error.is_none());
+            env.core.stop_capture().unwrap();
+            env.assert_original_proxy();
+        }
+    }
+
+    #[test]
+    fn failed_system_proxy_restore_does_not_leave_the_os_pointing_at_a_closed_listener() {
+        let env = TestProxy::new(true);
+        env.core.start_capture().unwrap();
+        env.system.0.lock().fail_restore = true;
+        assert!(env.core.stop_capture().is_err());
+        assert!(env.engine.status().capturing);
+        assert!(env.engine.status().system_proxy);
+        env.core.stop_capture().unwrap();
+        assert!(!env.engine.status().capturing);
+        assert!(!env.engine.status().system_proxy);
+        env.assert_original_proxy();
+    }
+
+    #[test]
+    fn f12_does_not_change_runtime_or_preferences_when_saving_fails() {
+        let env = TestProxy::new(false);
+        env.core.start_capture().unwrap();
+        // Block the atomic save's temporary file without changing the saved preference.
+        std::fs::create_dir(env.core.paths.settings.with_extension("json.tmp")).unwrap();
+        assert!(env.core.toggle_system_proxy().is_err());
+        env.assert_preference(false);
+        assert!(!env.engine.status().system_proxy);
+        assert!(env.engine.status().capturing);
+        assert_eq!(env.system.0.lock().set_calls, 0);
+        env.assert_original_proxy();
+    }
 
     #[test]
     fn system_exceptions_go_direct() {

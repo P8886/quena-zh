@@ -120,7 +120,7 @@ export function DeviceAssistant() {
         <div className="qr-box">{url ? <Qr text={url} /> : null}<div className="mono small">{url}</div></div>
       </div>
       <div className="device-status">
-        <div>{info.listening ? t("✓ Quena is listening") : t("✗ Quena is not capturing (F12)")}</div>
+        <div>{info.listening ? t("✓ Quena is listening") : t("✗ Proxy listener stopped. Enable it in the Capture menu.")}</div>
         <div>{seen ? t("✓ First connection from {ip} detected", { ip: seen.ip }) : t("… waiting for a connection from the device")}</div>
         <div>{seen?.https ? t("✓ HTTPS traffic decrypted") : seen ? t("… no decrypted HTTPS yet (certificate trusted?)") : ""}</div>
       </div>

@@ -5,13 +5,27 @@ server (or to the next proxy) and records both directions.
 
 ## Start and stop
 
-- The **capture switch** at the left of the toolbar shows *Capturing* or *Paused*. Click it,
-  press `F12`, use *Capture → Capture Traffic*, or type `start` / `stop` in the command field.
+- The **local capture switch** at the left of the toolbar controls this computer's system
+  proxy. Click it, press `F12`, or use *Capture → Capture This Computer*. Turning it off
+  restores the previous system proxy; phone connections, tunnels and WebSockets keep running.
+  The choice is saved in *Settings → Connections → Act as system proxy while capturing*.
+- The check mark beside *Capture This Computer* follows the actual system proxy state.
+  *Capture → Enable Proxy Listener* separately starts/stops the whole proxy; its check
+  mark follows the listening state. The command field's `start` / `stop` also controls
+  the whole proxy. Enabling local capture starts the listener if necessary.
 - While the system proxy is being changed, the switch shows *Starting…* or *Stopping…*.
-- Stopping the capture also closes open client connections, tunnels and WebSockets (after
+- Stopping the proxy listener also closes open client connections, tunnels and WebSockets (after
   the request in flight), so nothing more is recorded.
 - *Settings → General → Capture traffic on startup* (on by default) decides whether Quena
   captures right after it starts.
+
+To capture a phone without routing this computer's system traffic through Quena, keep
+the proxy listener on, turn off local capture with `F12` or save *Settings → Connections →
+Act as system proxy while capturing* unchecked, and turn on *Allow remote computers to
+connect*. Saving applies the system proxy choice immediately, without restarting the listener.
+Set the phone's Wi-Fi proxy to this
+computer's address and Quena's port; see [HTTPS and devices](https.md#phones-tablets-and-vms).
+Programs on this computer explicitly configured to use Quena still go through it.
 
 ## Start a browser or terminal with Quena
 
@@ -86,7 +100,8 @@ off, so intranet and VPN hosts without a dot (`http://appserver/`) are recorded 
 exceptions of the previous proxy are not lost: those hosts still go direct from Quena
 instead of through the upstream proxy (see [Upstream proxy and PAC](#upstream-proxy-and-pac)).
 
-The previous proxy setting is saved and **restored when you quit** — and, if Quena ever
+The previous proxy setting is saved and **restored when local capture is turned off,
+the listener is stopped or you quit** — and, if Quena ever
 crashes, at the next start. On Windows, logging off or shutting down while Quena runs
 restores it as well.
 

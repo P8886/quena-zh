@@ -16,6 +16,8 @@ export async function handleMenu(id: string) {
       return set({ dialog: { kind: "replay-progress" } });
     case "file.capture":
       return actions.toggleCapture();
+    case "capture.system-proxy":
+      return actions.toggleSystemProxy();
     case "file.recover":
       return set({ dialog: { kind: "recover" } });
     case "edit.copy-url":

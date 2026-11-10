@@ -311,7 +311,14 @@ impl AppCore {
 
     /// Replace the settings. `sanitize` (the last options of the sanitized export) belongs to
     /// the core: the export writes it, and a caller's copy may be older, so it is kept.
-    pub fn update_settings(self: &Arc<Self>, mut s: Settings) -> Result<()> {
+    pub fn update_settings(self: &Arc<Self>, s: Settings) -> Result<()> {
+        // Settings can attach/detach the system proxy too; serialize them with startup,
+        // shutdown and F12 so an older operation cannot restore the wrong proxy state.
+        let _g = self.capture_switch.lock();
+        self.update_settings_locked(s)
+    }
+
+    fn update_settings_locked(self: &Arc<Self>, mut s: Settings) -> Result<()> {
         {
             // Checked when the entries or the ports they must not take change.
             let cur = self.settings.read();
@@ -330,24 +337,26 @@ impl AppCore {
         let old = {
             let mut cur = self.settings.write();
             s.sanitize = cur.sanitize.clone();
+            s.save(&self.paths.settings).context("save settings")?;
             std::mem::replace(&mut *cur, s.clone())
         };
-        s.save(&self.paths.settings).context("save settings")?;
         self.capture().bodies.set_config(s.bodies.to_config());
         if old.header_columns != s.header_columns {
             quena_model::set_header_columns(s.header_columns.clone());
             self.refresh_header_columns();
         }
-        if old.proxy != s.proxy
+        let engine_changed = old.proxy != s.proxy
             || old.reverse_proxy != s.reverse_proxy
             || old.socks != s.socks
             || old.transparent != s.transparent
             || old.host_remap != s.host_remap
             || old.https != s.https
             || old.throttle_kbps != s.throttle_kbps
-            || old.throttle_latency_ms != s.throttle_latency_ms
-        {
-            if let Some(e) = self.engine() {
+            || old.throttle_latency_ms != s.throttle_latency_ms;
+        if let Some(e) = self.engine() {
+            let status = e.status();
+            // A failed apply has already saved the preference. Saving it again must retry.
+            if engine_changed || status.error.is_some() || (status.capturing && status.system_proxy != s.proxy.act_as_system_proxy) {
                 e.reconfigure(self)?;
             }
         }
@@ -514,6 +523,27 @@ impl AppCore {
             self.start_capture_locked()?;
         }
         Ok(!on)
+    }
+
+    /// Fiddler-style local capture: leave the proxy listener and explicit clients running.
+    pub fn toggle_system_proxy(self: &Arc<Self>) -> Result<bool> {
+        let _g = self.capture_switch.lock();
+        let engine = self.engine().ok_or_else(|| anyhow!("no capture engine installed"))?;
+        let on = !engine.status().system_proxy;
+        let mut settings = self.settings();
+        settings.proxy.act_as_system_proxy = on;
+        self.update_settings_locked(settings)?;
+        if on && !engine.status().capturing {
+            self.start_capture_locked()?;
+        }
+        let status = engine.status();
+        if let Some(error) = status.error {
+            return Err(anyhow!(error));
+        }
+        if status.system_proxy != on {
+            return Err(anyhow!("system proxy did not change"));
+        }
+        Ok(on)
     }
 
     // ------------------------------------------------------------------ list

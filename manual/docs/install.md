@@ -103,7 +103,7 @@ also carries an SBOM attestation of the whole image, Debian packages included:
     ```
 
 !!! tip "Quick orientation"
-    - `F12` starts and stops capturing.
+    - `F12` toggles this computer's system proxy; explicitly configured device connections keep running.
     - `Ctrl/⌘ K` opens the command palette with every command.
     - `Alt Q` jumps to the command field — type `help` there for the syntax.
 

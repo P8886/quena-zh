@@ -19,7 +19,8 @@ interface Cmd {
 }
 
 const COMMANDS: Cmd[] = [
-  { id: "file.capture", label: t("Start / stop capturing"), group: t("Capture"), keys: "F12" },
+  { id: "capture.system-proxy", label: t("Capture This Computer"), group: t("Capture"), keys: "F12" },
+  { id: "file.capture", label: t("Enable Proxy Listener"), group: t("Capture") },
   { id: "rules.bp-before", label: t("Break before requests"), group: t("Capture"), keys: "F11" },
   { id: "rules.bp-after", label: t("Break after responses"), group: t("Capture"), keys: "Alt F11" },
   { id: "rules.bp-off", label: t("Breakpoints off"), group: t("Capture"), keys: "Shift F11" },

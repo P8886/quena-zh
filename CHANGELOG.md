@@ -24,6 +24,14 @@ contain breaking changes (settings, file formats, plugin API).
   peak concurrency, throughput and request durations; each batch can be stopped separately.
 
 ### Fixed
+- Changing the system proxy preference while the listener is running now attaches or
+  restores the OS proxy immediately, without interrupting explicitly configured clients.
+  Failed changes are reported and can be retried by saving again.
+- F12, the toolbar and the status-bar capture switch toggle this computer's system proxy
+  and save the preference. Device connections keep running; the whole proxy listener has
+  a separate menu switch and remains controlled by the `start` / `stop` commands.
+- The native local capture and proxy listener check marks follow the actual states, including
+  startup, toolbar and MCP changes, failed or ignored toggles, and language changes.
 - MCP client setup now shows and copies instructions for the selected client, remembers
   the selection, and keeps setup and skill-installation results visible in the dialog.
 - F2 edits are no longer overwritten with the previous body when the editor refreshes

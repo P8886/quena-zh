@@ -201,6 +201,7 @@ async fn set_language(app: tauri::AppHandle, pref: String) -> R<String> {
     crate::i18n::set(lang);
     let m = crate::menu::build(&app).map_err(e)?;
     app.set_menu(m).map_err(e)?;
+    crate::menu::sync_capture(&app);
     Ok(lang.to_string())
 }
 
@@ -362,6 +363,12 @@ async fn mock_big(core: State<'_, Core>, scale: u64) -> R<()> {
 async fn toggle_capture(core: State<'_, Core>) -> R<bool> {
     let core = core.inner().clone();
     blocking(move || core.toggle_capture().map_err(e)).await
+}
+
+#[tauri::command]
+async fn toggle_system_proxy(core: State<'_, Core>) -> R<bool> {
+    let core = core.inner().clone();
+    blocking(move || core.toggle_system_proxy().map_err(e)).await
 }
 
 #[tauri::command]
@@ -1423,6 +1430,7 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Syn
         mock_stop,
         mock_big,
         toggle_capture,
+        toggle_system_proxy,
         recoverable,
         recover,
         discard,

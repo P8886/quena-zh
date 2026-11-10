@@ -18,15 +18,17 @@ function Btn({ icon: Icon, label, onClick, active, title, disabled, menu }: { ic
   );
 }
 
-/** The capture switch: a labelled toggle, the most important control in the window. */
+/** Local capture toggles the OS proxy; device connections keep using the listener. */
 function CaptureSwitch() {
-  const capturing = useStore((s) => s.status?.engine.capturing ?? false);
-  const busy = useStore((s) => s.captureBusy);
+  const capturing = useStore((s) => s.status?.engine.systemProxy ?? false);
+  const systemBusy = useStore((s) => s.systemProxyBusy);
+  const captureBusy = useStore((s) => s.captureBusy);
+  const busy = systemBusy ?? captureBusy;
   // While switching, show the state being switched to.
-  const on = busy ? busy === "starting" : capturing;
-  const label = busy === "starting" ? t("Starting…") : busy === "stopping" ? t("Stopping…") : capturing ? t("Capturing") : t("Paused");
+  const on = systemBusy ? systemBusy === "starting" : capturing;
+  const label = busy === "starting" ? t("Starting…") : busy === "stopping" ? t("Stopping…") : capturing ? t("Capturing this computer") : t("Local capture off");
   return (
-    <button className={`capture-switch ${on ? "on" : ""} ${busy ? "busy" : ""}`} title={t("Capture traffic (F12)")} aria-busy={!!busy} onClick={() => actions.toggleCapture()}>
+    <button className={`capture-switch ${on ? "on" : ""} ${busy ? "busy" : ""}`} title={t("Toggle this computer's system proxy (F12). Device connections keep running.")} aria-busy={!!busy} disabled={!!busy} onClick={() => actions.toggleSystemProxy()}>
       <span className="cs-track">
         <span className="cs-knob" />
       </span>

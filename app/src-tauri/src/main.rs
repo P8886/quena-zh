@@ -15,6 +15,9 @@ struct TauriSink(tauri::AppHandle);
 
 impl EventSink for TauriSink {
     fn emit(&self, event: &str, payload: serde_json::Value) {
+        if event == "status" {
+            menu::sync_capture(&self.0);
+        }
         if let Err(e) = self.0.emit(event, payload) {
             tracing::debug!("emit {event}: {e}");
         }
@@ -92,7 +95,12 @@ fn main() {
             i18n::set(i18n::resolve(&i18n::saved_pref(&core.settings().ui)));
             let m = menu::build(&handle)?;
             app.set_menu(m)?;
+            menu::sync_capture(&handle);
             app.on_menu_event(|app, ev| {
+                if matches!(ev.id().as_ref(), "file.capture" | "capture.system-proxy") {
+                    // Restore the actual state even if the UI ignores a click while busy.
+                    menu::sync_capture(app);
+                }
                 let _ = app.emit("menu", ev.id().0.clone());
             });
             // The main window is created here (not from the config) so that a portable

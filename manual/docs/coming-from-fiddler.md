@@ -89,7 +89,7 @@ Full list: [Command and filter syntax](syntax.md).
 
 | Action | Shortcut |
 |---|---|
-| Start / stop capturing | `F12` |
+| Toggle local capture (system proxy; device connections keep running) | `F12` |
 | Break before requests / after responses / off | `F11` / `Alt F11` / `Shift F11` |
 | Statistics / Inspect / Composer | `F7` / `F8` / `F9` |
 | Rules Script | `Ctrl/⌘ R` |

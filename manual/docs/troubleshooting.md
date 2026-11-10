@@ -2,8 +2,9 @@
 
 ## No traffic appears
 
-- Is the capture switch on (*Capturing*)? Press `F12`. The status bar shows the address
-  Quena listens on and a *system proxy* tag when it registered itself.
+- For this computer's traffic, is local capture on? Press `F12`. For phones and other
+  explicit clients, enable *Capture → Enable Proxy Listener*. The status bar shows the address
+  Quena listens on and whether local capture is on.
 - Is *Settings → Connections → Act as system proxy while capturing* on? Without it,
   applications must be pointed at `127.0.0.1:8866` by hand.
 - Command-line tools and many runtimes (Node.js, Java, Python …) ignore the desktop proxy

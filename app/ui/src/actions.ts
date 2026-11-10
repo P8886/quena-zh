@@ -346,7 +346,7 @@ export const actions = {
 
   // ---------------------------------------------------------------- capture
   async toggleCapture() {
-    if (get().captureBusy) return;
+    if (get().captureBusy || get().systemProxyBusy) return;
     // Flip the switch right away; the core confirms through the status.
     set({ captureBusy: get().status?.engine.capturing ? "stopping" : "starting" });
     try {
@@ -358,6 +358,26 @@ export const actions = {
       say(String(e), "error");
     } finally {
       set({ captureBusy: null });
+    }
+  },
+
+  async toggleSystemProxy() {
+    if (get().captureBusy || get().systemProxyBusy) return;
+    set({ systemProxyBusy: get().status?.engine.systemProxy ? "stopping" : "starting" });
+    try {
+      const on = await api.toggleSystemProxy();
+      say(on ? t("Capturing this computer") : t("Local capture off; explicitly configured clients keep using the proxy"));
+      return on;
+    } catch (e) {
+      say(String(e), "error");
+    } finally {
+      // The preference can have been saved even when the OS rejects the change.
+      const [status, settings] = await Promise.allSettled([api.status(), api.settingsGet()]);
+      set({
+        ...(status.status === "fulfilled" ? { status: status.value } : {}),
+        ...(settings.status === "fulfilled" ? { settings: settings.value } : {}),
+        systemProxyBusy: null,
+      });
     }
   },
 

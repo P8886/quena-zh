@@ -267,7 +267,7 @@ const QUICKEXEC_HELP = (
     ["bpllm [cond]", t("break before LLM requests: * any; model=claude tool=mcp__jira__* tokens=50k; without: off")],
     ["g | go", t("resume all paused sessions")],
     ["dump", t("save all sessions as .saz")],
-    ["start | stop", t("start/stop capturing")],
+    ["start | stop", t("start/stop the proxy listener (all clients)")],
     ["help", t("this help")],
   ] as const
 )
@@ -275,7 +275,7 @@ const QUICKEXEC_HELP = (
   .join("\n");
 
 const SHORTCUTS: [string, string][] = [
-  ["F12", t("Capture on/off (incl. system proxy)")],
+  ["F12", t("Toggle local capture; device connections keep running")],
   ["Ctrl+X / ⌘X", t("Remove all sessions")],
   ["Del / Shift+Del", t("Remove selected / all except selected")],
   ["R / Shift+R / U", t("Replay / replay n times / unconditional replay")],
@@ -768,7 +768,12 @@ function ProtobufOptions({ s, up }: { s: Settings; up: (f: (x: Settings) => void
 
 function OptionsDialog() {
   const [s, setS] = useState<Settings | null>(get().settings);
+  const systemProxyPreference = useStore((st) => st.settings?.proxy.actAsSystemProxy);
   const [tab, setTab] = useState<"general" | "connections" | "https" | "auth" | "bodies" | "mcp">("general");
+  useEffect(() => {
+    if (systemProxyPreference === undefined) return;
+    setS((s) => s ? { ...s, proxy: { ...s.proxy, actAsSystemProxy: systemProxyPreference } } : s);
+  }, [systemProxyPreference]);
   if (!s) return null;
   const up = (f: (x: Settings) => void) => {
     const n = structuredClone(s);
@@ -852,8 +857,9 @@ function OptionsDialog() {
               <input type="number" value={s.proxy.port} onChange={(e) => up((x) => (x.proxy.port = Number(e.target.value)))} />
             </div>
             <label className="f-check">
-              <input type="checkbox" checked={s.proxy.actAsSystemProxy} onChange={(e) => up((x) => (x.proxy.actAsSystemProxy = e.target.checked))} /> {t("Act as system proxy while capturing")}
+              <input type="checkbox" checked={s.proxy.actAsSystemProxy} onChange={(e) => up((x) => (x.proxy.actAsSystemProxy = e.target.checked))} /> {t("Act as system proxy while capturing")} (F12)
             </label>
+            <p className="muted small">{t("Saving applies this setting immediately while the proxy is running. Turning it off leaves device connections running.")}</p>
             <div className="f-row" title={t("These hosts become exceptions of the system proxy and of browsers and terminals Quena starts, so their traffic does not reach Quena; a client that sends them to Quena anyway gets them passed through without decryption.")}>
               <span>{t("Do not capture (bypass Quena)")}</span>
               <input placeholder="login.example.com; *.bank.example" value={s.proxy.bypassHosts ?? ""} onChange={(e) => up((x) => (x.proxy.bypassHosts = e.target.value))} />
