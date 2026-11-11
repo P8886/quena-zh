@@ -7,8 +7,14 @@ const palette: Palette = {
   red: "error", blue: "blue", green: "green", purple: "purple", gray: "gray", amber: "paused",
   breakpointRequest: "request-dot", breakpointResponse: "response-dot",
   selBg: "selected", selInactiveBg: "selected-inactive", selFg: "selected-text", focus: "focus", grid: "grid",
-  marks: { orange: "pause-background", purple: "match-background" },
-  markFg: { orange: "pause-text", purple: "match-text" },
+  marks: {
+    red: "red-background", blue: "blue-background", gold: "gold-background",
+    green: "green-background", orange: "pause-background", purple: "match-background",
+  },
+  markFg: {
+    red: "red-text", blue: "blue-text", gold: "gold-text",
+    green: "green-text", orange: "pause-text", purple: "match-text",
+  },
   tones: {
     ok: { fg: "ok-text", bg: "ok" }, info: { fg: "info-text", bg: "info" },
     warn: { fg: "warn-text", bg: "warn" }, err: { fg: "error-text", bg: "error" },
@@ -39,17 +45,36 @@ describe("session row colour priority", () => {
     expect(stateMark(paused, palette)).toBeNull();
   });
 
-  it.each(["active", "inactive"] as const)("keeps %s selection readable over errors, pauses and search marks", (selection) => {
+  it("keeps an active selection readable over errors, pauses and search marks", () => {
     for (const state of ["aborted", "breakpointRequest", "breakpointResponse", "done"] as const) {
       for (const color of [null, "purple"] as const) {
-        expect(rowStyle({ ...session, state, color }, palette, selection)).toMatchObject({
-          bg: selection === "active" ? palette.selBg : palette.selInactiveBg,
+        expect(rowStyle({ ...session, state, color }, palette, "active")).toMatchObject({
+          bg: palette.selBg,
           fg: palette.selFg,
           markBar: color ? palette.markFg[color] : null,
           breakpointDot: state === "breakpointRequest" ? palette.breakpointRequest
             : state === "breakpointResponse" ? palette.breakpointResponse : null,
         });
       }
+    }
+  });
+
+  it.each(["red", "blue", "gold", "green", "orange", "purple"] as const)("shows the %s find highlight immediately while its matches are selected outside the list", (color) => {
+    for (const state of ["done", "aborted", "breakpointRequest", "breakpointResponse"] as const) {
+      expect(rowStyle({ ...session, state, color }, palette, "inactive")).toMatchObject({
+        bg: palette.marks[color], fg: palette.markFg[color], bold: true,
+        markBar: palette.markFg[color],
+        breakpointDot: state === "breakpointRequest" ? palette.breakpointRequest
+          : state === "breakpointResponse" ? palette.breakpointResponse : null,
+      });
+    }
+  });
+
+  it("keeps an inactive selection readable when it has no search or user mark", () => {
+    for (const state of ["done", "aborted", "breakpointRequest", "breakpointResponse"] as const) {
+      expect(rowStyle({ ...session, state }, palette, "inactive")).toMatchObject({
+        bg: palette.selInactiveBg, fg: palette.selFg, markBar: null,
+      });
     }
   });
 
@@ -61,7 +86,7 @@ describe("session row colour priority", () => {
 
   it("retains an error indicator on a selected, search-marked session", () => {
     const failed = { ...session, state: "aborted" as const, status: 0, color: "purple" as const };
-    expect(rowStyle(failed, palette, "inactive").fg).toBe(palette.selFg);
+    expect(rowStyle(failed, palette, "inactive").fg).toBe(palette.markFg.purple);
     expect(stateMark(failed, palette)).toBe(palette.red);
     expect(statusPill(failed)).toEqual({ text: "ERR", tone: "err" });
   });

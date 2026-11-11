@@ -28,6 +28,9 @@ contain breaking changes (settings, file formats, plugin API).
   peak concurrency, throughput and request durations; each batch can be stopped separately.
 
 ### Fixed
+- Find Sessions highlights remain visible as soon as the search finishes, even though
+  all matches are selected. Marked rows keep their colours while the list is unfocused;
+  active selections still use the contrasting selection palette.
 - Clearing sessions isolates late network updates, body-recording completion and background
   analysis from reused session numbers. Removed rows stay removed; cleared breakpoints are
   aborted, and their cleanup cannot release or remove a new request's breakpoint.

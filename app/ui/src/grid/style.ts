@@ -96,7 +96,9 @@ export function rowStyle(r: SessionSummary, p: Palette, selection: "none" | "act
     : r.state === "breakpointResponse" ? p.breakpointResponse : null;
   if (breakpointDot) italic = false;
   // Breakpoints use the dot so selection and search highlights can keep their backgrounds.
-  if (selection !== "none") {
+  // Find selects every match while its dialog owns focus. Keep those marks visible
+  // outside the list; an active selection still uses its own contrasting palette.
+  if (selection === "active" || (selection === "inactive" && !r.color)) {
     bg = selection === "active" ? p.selBg : p.selInactiveBg;
     fg = p.selFg;
   }

@@ -139,7 +139,9 @@ A thin **state bar** at the left edge of a row shows red for an aborted session,
 the accent colour while the session is in flight, purple for a response from
 [Mock Rules](change-replay.md#mock-rules) and blue for a WebSocket.
 
-Backgrounds take priority in this order: **selection → mark → normal**. Breakpoints
+While the list has focus, backgrounds take priority in this order:
+**selection → mark → normal**. Outside the list, marked rows keep their mark colour;
+unmarked selected rows use the inactive selection colour. Breakpoints
 only add a dot; they do not change the row's background or text colour. A second thin bar
 beside the state bar keeps the mark colour visible even while the row is selected.
 The dot remains visible while selected or marked, when the number column is hidden,

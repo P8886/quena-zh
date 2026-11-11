@@ -214,3 +214,25 @@ PATH=/tmp/quena-cargo/bin:$PATH npm exec --prefix app/ui -- tauri build \
 日志和来源记录：`/tmp/quena-zh-r13-package.log`、
 `/tmp/quena-zh-r13-source.json`、`/tmp/quena-zh-r13-verify.json`、
 `/tmp/quena-zh-r13-delivery.json`、`/tmp/quena-zh-r13-startup.log`。
+
+## 查找高亮被失焦选中色遮挡（2026-11-10）
+
+查找会自动选中所有匹配行；原绘制逻辑在列表失焦时仍用选中底色覆盖标记色，
+因此用户需再点其他行取消批量选中，才能看到设置的高亮颜色。
+现在失焦的已标记行保留标记配色；列表有焦点时继续使用选中配色，
+未标记行的失焦选中色、匹配结果批量选择、错误状态条和断点圆点保持原逻辑。
+
+- 基准提交：`de019dd1859c6e11a982a2dc3dcec3f851124b76`，另含本次未提交修复。
+- 相关源码指纹：`/tmp/quena-find-highlight-source-20261110.json`。
+
+| 检查 | 结果 |
+| --- | --- |
+| 修复前运行新增回归断言 | 7 项按预期失败，复现设置的标记色被 `selected-inactive` 覆盖；日志 `/tmp/quena-find-highlight-before-fix.log` |
+| `npm test --prefix app/ui -- src/grid/style.test.ts src/grid/sessionIcon.test.ts src/actions.test.ts` | 3 个文件、98 项通过；覆盖六种标记色、活动／失焦选择、错误状态和请求／响应断点 |
+| `npm run typecheck --prefix app/ui` | 通过 |
+| 真实前端组件与模拟查找 IPC | 修复前在列表中复现浅蓝色覆盖金色；修复后重新加载并查找 `/api/`，弹窗关闭即显示金色，状态栏仍显示已选择 11 个，红／黄断点圆点仍可见，全程无需额外点击 |
+
+截图：`/tmp/quena-find-highlight-fixed-20261110.jpg`。
+模拟预览脚本：`/tmp/quena-find-highlight-preview-20261110.mjs`；验证后已停止本轮
+临时预览服务，保留脚本用于复现。此次没有运行 Rust 构建或生成新的安装包，
+没有新增独立测试可执行文件；当前 r13 交付包及已安装应用保留。
