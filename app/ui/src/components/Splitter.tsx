@@ -1,6 +1,15 @@
 import { useRef } from "react";
 import { actions } from "../actions";
 
+/** Fill both grid tracks even when one reaches its minimum size. */
+export function splitTracks(fraction: number, min: [number, number], gap = 8): string {
+  const ratio = Number.isFinite(fraction) ? Math.max(0, Math.min(1, fraction)) : 0.5;
+  // Each nonzero fr weight must be at least 1. Smaller weights can leave space
+  // unused after the other track is frozen at its minimum (CSS Grid flex sizing).
+  const unit = Math.min(ratio, 1 - ratio) || 1;
+  return `minmax(${min[0]}px, ${ratio / unit}fr) ${gap}px minmax(${min[1]}px, ${(1 - ratio) / unit}fr)`;
+}
+
 /** Minimum sizes in pixels keep both areas usable while dragging. */
 export function Splitter({ onDrag, vertical, min = [120, 120], label }: {
   onDrag: (fraction: number) => void;

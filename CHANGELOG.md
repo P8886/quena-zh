@@ -32,6 +32,8 @@ contain breaking changes (settings, file formats, plugin API).
   peak concurrency, throughput and request durations; each batch can be stopped separately.
 
 ### Fixed
+- Wide layouts and Raw header/body splits fill the window when a pane reaches its
+  minimum height, including after resizing a window or restoring a saved divider position.
 - Find Sessions highlights remain visible as soon as the search finishes, even though
   all matches are selected. Marked rows keep their colours while the list is unfocused;
   active selections still use the contrasting selection palette.

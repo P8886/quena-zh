@@ -10,7 +10,7 @@ import { CharsetPicker, useCharsetOverride } from "./CharsetPicker";
 import { nodesToTree, type InspectSection } from "../lib/inspect";
 import { BodyText } from "./BodyText";
 import { get, set, useStore } from "../store";
-import { Splitter } from "../components/Splitter";
+import { Splitter, splitTracks } from "../components/Splitter";
 import { parseXml } from "../lib/xml";
 import { plural, t } from "../i18n";
 import { openMenu, withSelection } from "../components/contextMenus";
@@ -479,7 +479,7 @@ export function RawView({ detail, part, wrap }: { detail: Detail; part: Part; wr
   return (
     <div
       className={textBody ? "rawview" : "rawview head-only"}
-      style={textBody ? { gridTemplateRows: `minmax(48px, ${split}fr) 8px minmax(60px, ${1 - split}fr)` } : undefined}
+      style={textBody ? { gridTemplateRows: splitTracks(split, [48, 60]) } : undefined}
     >
       <pre className="raw-head">
         {head}

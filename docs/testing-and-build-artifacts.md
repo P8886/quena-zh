@@ -276,3 +276,49 @@ PATH=/tmp/quena-cargo/bin:$PATH npm exec --prefix app/ui -- tauri build \
 4 个独立测试可执行文件，共 53,446,336 字节。记录：
 `/tmp/quena-continuous-find-test-cleanup.json`。清理后 `target/` 约 4.4 GiB，
 低于 6 GiB 预算；保留依赖库、测试源码和 r13 交付包，本轮未生成新安装包。
+
+## 非全屏窗口底部留白（2026-11-10）
+
+宽布局将保存的 0～1 比例直接作为 `fr` 权重；详情区触发 240 px 最小高度后，
+剩下的权重小于 1，CSS Grid 只分配部分剩余空间，导致窗口底部多出空白。
+用当前保存的列表比例 `0.6956313775510204` 在 `1440 × 850` 渲染区域复现，
+详情底边与状态栏之间相距约 159.49 px。
+
+现在把两个权重按比例归一化，使每个非零权重至少为 1，最小高度触发后仍能用满
+剩余空间。宽布局和原始报文头部／正文分隔复用同一计算，保留原有分隔比例和拖动保存逻辑。
+
+- 基准提交：`de019dd1859c6e11a982a2dc3dcec3f851124b76`，另含前述未提交修复。
+- 源码指纹：`/tmp/quena-window-layout-source-20261110.json`。
+
+| 检查 | 结果 |
+| --- | --- |
+| `npm test --prefix app/ui -- src/store.test.ts src/actions.test.ts` | 24 项通过，布局恢复与切换相关回归通过 |
+| `npm run typecheck --prefix app/ui` | 通过 |
+| 真实前端组件与模拟 IPC，原保存比例 | `1440 × 850`、`1440 × 1000`、`1000 × 700`、`900 × 560` 下底部空白均为 0 px，详情区保持至少 240 px |
+| 拖动列表／详情分隔条 | 底部继续填满；完整重载后分隔位置恢复一致 |
+| 拖动请求原始报文分隔条后缩小至 `900 × 560` | 请求正文保留 60 px 最小高度，头部／分隔条／正文用满区域；两侧正文底边与原始视图底边之差小于 0.01 px |
+| 完整重载 | 列表比例、请求与响应各自的原始报文比例均恢复一致，正文实际加载显示正常 |
+
+尺寸、轨道和拖动记录：`/tmp/quena-window-layout-checks-20261110.json`。
+截图：`/tmp/quena-window-layout-before-20261110.jpg`、
+`/tmp/quena-window-layout-fixed-20261110.jpg`、
+`/tmp/quena-window-layout-small-20261110.jpg`、
+`/tmp/quena-window-layout-final-20261110.jpg`。
+日志：`/tmp/quena-window-layout-tests.log`、`/tmp/quena-window-layout-typecheck.log`。
+
+验证使用独立模拟数据，已恢复浏览器默认尺寸并停止本轮临时预览服务。
+仅修改前端源码，没有生成 Rust 测试可执行文件或新的安装包，保留现有应用和交付包。
+
+## 本轮拆分提交前验证（2026-11-11）
+
+在提交前重新运行前端完整测试和生产构建：
+
+| 命令 | 结果 |
+| --- | --- |
+| `npm test --prefix app/ui` | 31 个测试文件、236 项通过，0 失败 |
+| `npm run build --prefix app/ui` | TypeScript 类型检查和 Vite 生产构建通过 |
+
+核对查找高亮、持续匹配及窗口布局的源码指纹，运行时代码与前述已验证版本一致。
+持续匹配涉及的 219 项 Rust 测试及原生命令编译检查沿用前述结果，本轮没有重复编译。
+日志：`/tmp/quena-precommit-20261111-ui-tests.log`、
+`/tmp/quena-precommit-20261111-ui-build.log`。本轮未生成独立 Rust 测试可执行文件或安装包。

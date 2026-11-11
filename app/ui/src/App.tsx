@@ -8,7 +8,7 @@ import { ContextMenuHost } from "./components/ContextMenu";
 import { Dialogs } from "./components/Dialogs";
 import { PerfOverlay } from "./components/PerfOverlay";
 import { StatusBar } from "./components/StatusBar";
-import { Splitter } from "./components/Splitter";
+import { Splitter, splitTracks } from "./components/Splitter";
 import { Toolbar } from "./components/Toolbar";
 import { SessionGrid } from "./grid/SessionGrid";
 import { RightPane } from "./panels/RightPane";
@@ -161,7 +161,7 @@ export function App() {
         <div
           className={`main${wide ? " main-wide" : ""}`}
           style={wide
-            ? { gridTemplateColumns: "minmax(0, 1fr)", gridTemplateRows: `minmax(140px, ${listHeight}fr) 8px minmax(240px, ${1 - listHeight}fr)` }
+            ? { gridTemplateColumns: "minmax(0, 1fr)", gridTemplateRows: splitTracks(listHeight, [140, 240]) }
             : { gridTemplateColumns: `minmax(280px, ${leftWidth * 100}%) 8px minmax(380px, 1fr)` }}
         >
           <div className="left">
