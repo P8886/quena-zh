@@ -185,3 +185,32 @@ Rust 命令使用现有工具链和依赖缓存：`CARGO_HOME=/tmp/quena-cargo`�
 734,953,152 字节（约 701 MiB），没有因占用而跳过的文件。
 清理记录：`/tmp/quena-precommit-test-cleanup.json`。
 `target/` 清理后约 4.3 GiB，低于 6 GiB 预算；保留可复用依赖和交付包。
+
+## 中文修订 13 安装包（2026-11-10）
+
+- 源码提交：`de019dd1859c6e11a982a2dc3dcec3f851124b76`；开始构建时工作区干净，
+  包含本轮按功能拆分的全部 10 个提交。
+- 版本：`0.2.1`，构建编号 `2026111013`，macOS Apple Silicon（arm64）。
+- 构建复用现有工具链与 `target/local/`，关闭增量编译；前端类型检查、生产构建
+  及原生编译、APP/DMG 打包均通过。本轮没有重复运行此前已通过的功能测试。
+
+```sh
+CARGO_HOME=/tmp/quena-cargo RUSTUP_HOME=/tmp/quena-rustup CARGO_INCREMENTAL=0 \
+PATH=/tmp/quena-cargo/bin:$PATH npm exec --prefix app/ui -- tauri build \
+  --bundles app,dmg --config /tmp/quena-zh-r13-package.json --ci \
+  -- --profile local --locked --offline
+```
+
+交付文件：`/Users/jun/Downloads/Quena_0.2.1_zh-CN_r13_arm64.dmg`，
+26,277,368 字节（约 25.06 MiB），SHA-256：
+`3d8f5dca8850232f5c89fdea51a671a97b19f26d3c969273f1e7e0cbff999c1c`。
+
+已通过磁盘映像校验、挂载后本地签名完整性检查、arm64 架构检查、
+内嵌主程序与构建结果的哈希比对，以及 5 个随包插件资源检查。
+使用临时应用副本和独立数据目录启动 10 秒，WebView 初始化成功并以状态码 0 退出；
+关闭测试实例后清理临时副本并卸载校验映像。现有应用和抓包数据保留。
+构建后 `target/` 约 4.3 GiB，低于 6 GiB 预算。
+
+日志和来源记录：`/tmp/quena-zh-r13-package.log`、
+`/tmp/quena-zh-r13-source.json`、`/tmp/quena-zh-r13-verify.json`、
+`/tmp/quena-zh-r13-delivery.json`、`/tmp/quena-zh-r13-startup.log`。
