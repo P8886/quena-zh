@@ -236,3 +236,43 @@ PATH=/tmp/quena-cargo/bin:$PATH npm exec --prefix app/ui -- tauri build \
 模拟预览脚本：`/tmp/quena-find-highlight-preview-20261110.mjs`；验证后已停止本轮
 临时预览服务，保留脚本用于复现。此次没有运行 Rust 构建或生成新的安装包，
 没有新增独立测试可执行文件；当前 r13 交付包及已安装应用保留。
+
+## 查找持续匹配后续流量（2026-11-10）
+
+原查找只处理启动任务时的会话快照。现在颜色高亮默认开启“持续匹配新会话”，
+初次查找结束后，由索引订阅合并发生变化的会话编号，后台按批检查，
+不在代理转发线程或界面线程读取正文，也不反复扫描整个历史列表。
+后续匹配沿用范围、大小写、正则、正文大小上限、压缩解码及字符集设置。
+新匹配只高亮，不改变用户选中或正在编辑的会话；状态栏提供计数和停止入口。
+停止保留已有标记，新查找替换旧条件；仅选择、仅选中会话和 MCP 查找保持单次任务。
+清空或切换抓包后保留条件并重建编号绑定，旧任务不能给复用编号的新会话着色。
+
+- 基准提交：`de019dd1859c6e11a982a2dc3dcec3f851124b76`，另含本次及上一轮未提交修复。
+- 源码指纹：`/tmp/quena-continuous-find-source-20261110.json`，包含两个新增测试文件。
+- Rust 检查复用 `/tmp/quena-cargo`、`/tmp/quena-rustup` 和当前 `target/local/`。
+
+| 检查 | 结果 |
+| --- | --- |
+| `cargo test -p quena-index -p quena-store --profile local --locked --offline --lib` | 21 项通过，含订阅合并、分批读取和视图更新相互独立的回归 |
+| `cargo test -p quena-app-core --profile local --locked --offline --lib --test live_find` | 核心 191 项、新增集成 7 项通过；包含真实 HTTP 代理的分块响应在初次查找后到达、大小写／正则、gzip／字符集／正文上限、600 条后续会话分批处理、筛选变更、MCP 隔离、停止／替换及清空／切换抓包 |
+| `npm test --prefix app/ui -- src/i18n/i18n.test.ts src/grid/style.test.ts src/actions.test.ts` | 44 项通过 |
+| `npm test --prefix app/ui -- src/components/FindDialog.test.tsx` | 5 项通过，验证默认开启、记住关闭、仅选择／仅选中会话，以及停止时保留选择和编辑内容 |
+| `npm run typecheck --prefix app/ui` | 通过 |
+| `cargo check -p quena-app --profile local --locked --offline` | 通过，包含新增原生命令注册和 MCP 编译检查 |
+| 浏览器真实组件、模拟新捕获事件 | 初次匹配 11 条；追加 #38 匹配请求后立即高亮且计数变为 12，#39 普通请求无高亮，详情仍查看原选中的 #10。点击状态栏停止后，再追加同样匹配的 #40 请求不再高亮，#38 的原标记保留 |
+
+界面预览截图：`/tmp/quena-continuous-find-options-20261110.jpg`、
+`/tmp/quena-continuous-find-active-20261110.jpg`、
+`/tmp/quena-continuous-find-stopped-20261110.jpg`。
+模拟脚本 `/tmp/quena-continuous-find-preview-20261110.mjs` 仅提供测试数据，
+验证后已停止服务。真实代理功能另由上述集成测试验证；本轮没有替换正在运行的应用。
+
+日志：`/tmp/quena-continuous-find-index-store.log`、
+`/tmp/quena-continuous-find-core-tests.log`、`/tmp/quena-continuous-find-ui-tests.log`、
+`/tmp/quena-continuous-find-dialog-tests.log`、`/tmp/quena-continuous-find-ui-typecheck.log`、
+`/tmp/quena-continuous-find-native-check.log`。
+
+测试后持有 Cargo 构建锁并通过 `lsof` 确认未被使用，清理本次日志列出的
+4 个独立测试可执行文件，共 53,446,336 字节。记录：
+`/tmp/quena-continuous-find-test-cleanup.json`。清理后 `target/` 约 4.4 GiB，
+低于 6 GiB 预算；保留依赖库、测试源码和 r13 交付包，本轮未生成新安装包。

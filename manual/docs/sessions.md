@@ -235,9 +235,17 @@ searches the content of sessions, not only the list:
 | *Examine* | headers and bodies, headers only, bodies only |
 | *Result highlight* | mark hits in a colour (gold by default), or only select them |
 | Checkboxes | *Match case*, *Regular expression*, *Decode compressed bodies*, *Selected sessions only* |
+| *Keep matching new sessions* | on by default when highlighting in colour across all sessions |
 | *Skip bodies larger than (MB)* | default 64 |
 
 The search runs as a background job with progress; hits are selected when it finishes.
+With *Keep matching new sessions*, the same conditions then apply to new traffic and
+to headers or bodies that arrive later. Matches are highlighted without changing the
+selection or inspector. The status bar shows the match count; click *Stop* there to end
+continuous matching and keep existing highlights. A new search replaces the previous
+conditions. *Selected sessions only* and *(select only)* perform a single search.
+Clearing sessions keeps the ongoing conditions for newly captured traffic, with the
+match count reset. Continuous matching lasts for the current app run.
 
 ## Filters
 

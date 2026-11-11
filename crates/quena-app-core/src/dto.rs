@@ -28,6 +28,7 @@ pub struct StatusDto {
     pub capture_dir: String,
     pub uptime_s: u64,
     pub mock_running: bool,
+    pub live_find: Option<crate::find::LiveFindStatus>,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]

@@ -98,6 +98,13 @@ export function StatusBar() {
         {count !== total ? plural(count, "{shown} of {n} session", "{shown} of {n} sessions", { shown: fmtNum(total) }) : plural(total, "{n} session", "{n} sessions")}
         {status?.filterActive ? <span className="sb-tag">{t("filtered")}</span> : null}
       </div>
+      {status?.liveFind && (
+        <button className="sb-cell sb-click sb-bp-toggle"
+          title={t("Matching “{text}”. Click to stop matching new sessions; existing highlights remain.", { text: status.liveFind.text })}
+          onClick={() => void api.findStop().then(() => set((s) => ({ status: s.status ? { ...s.status, liveFind: null } : null }))).catch((e) => say(String(e), "error"))}>
+          {t("Live find: {n} matches · Stop", { n: fmtInt(status.liveFind.matches) })}
+        </button>
+      )}
       {!!conditionalBps.length && <div className="sb-cell sb-bp">⏸ {conditionalBps.map(breakpointText).join(", ")}</div>}
       {replay && <button className="sb-cell sb-click sb-bp-toggle" onClick={() => set({ dialog: { kind: "replay-progress" } })} title={t("Replay Progress…")}>
         {t("Replay: {done}/{total}", { done: fmtInt(replay.completed), total: fmtInt(replay.planned) })}

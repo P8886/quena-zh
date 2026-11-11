@@ -272,6 +272,11 @@ async fn find_result(core: State<'_, Core>, job: u64) -> R<Option<quena_app_core
 }
 
 #[tauri::command]
+fn find_stop(core: State<'_, Core>) {
+    core.stop_find();
+}
+
+#[tauri::command]
 async fn statistics(core: State<'_, Core>, ids: Vec<SessionId>) -> R<Statistics> {
     let core = core.inner().clone();
     blocking(move || Ok(core.statistics(ids))).await
@@ -1419,6 +1424,7 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Syn
         statistics,
         find_sessions,
         find_result,
+        find_stop,
         jobs,
         cancel_job,
         settings_get,

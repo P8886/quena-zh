@@ -619,14 +619,24 @@ impl Capture {
 
     /// Persist UI-level changes (mark, comment) of a finished session.
     pub fn update_summary(&self, id: SessionId, f: impl Fn(&mut SessionSummary)) {
-        let numbering = self.numbering();
+        self.update_summary_numbered(self.numbering(), id, f);
+    }
+
+    /// Apply a delayed mark/comment only while ids still name the same sessions.
+    pub fn update_summary_numbered(&self, numbering: u64, id: SessionId, f: impl Fn(&mut SessionSummary)) -> bool {
+        if self.numbering() != numbering {
+            return false;
+        }
         if let Some(l) = self.live(id) {
+            if l.numbering() != numbering {
+                return false;
+            }
             l.update(|d| f(&mut d.summary));
-            return;
+            return true;
         }
         let _edits = self.edits.lock();
         if self.numbering() != numbering || self.index.get(id).is_none() {
-            return;
+            return false;
         }
         self.index.update(id, &f);
         if let Some(mut d) = self.detail(id) {
@@ -635,6 +645,7 @@ impl Capture {
             self.cache.lock().put(d.clone());
             self.db.put(d);
         }
+        true
     }
 
     /// Replace a finished session's detail (e.g. after tampering or re-import).

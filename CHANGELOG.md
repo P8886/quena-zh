@@ -8,6 +8,10 @@ contain breaking changes (settings, file formats, plugin API).
 ## [Unreleased]
 
 ### Added
+- Find Sessions can keep highlighting matching new requests and late responses after
+  the initial search. It defaults to on for colour highlights across all sessions;
+  the status bar shows the match count and stops the ongoing search. New matches
+  keep the user's selection and inspector unchanged.
 - Legacy TLS cipher compatibility uses system TLS 1.2 and HTTP/1.1 when an upstream
   server rejects modern algorithm negotiation, keeping HTTPS decryption and breakpoints.
   It defaults to on and can be disabled in HTTPS settings. Certificate verification,

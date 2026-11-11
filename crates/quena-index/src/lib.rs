@@ -5,13 +5,13 @@
 //! folds all pending changes into the current view in one go. The UI only
 //! ever asks for a window of rows.
 
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use quena_model::{SessionId, SessionSummary};
 use quena_query::Filter;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -456,6 +456,28 @@ impl Inner {
 #[derive(Default)]
 pub struct SessionIndex {
     inner: RwLock<Inner>,
+    changes: RwLock<Vec<Weak<SessionChanges>>>,
+}
+
+/// Coalesced session changes for background readers. Dropping the subscription stops it.
+#[derive(Default)]
+pub struct SessionChanges {
+    pending: Mutex<HashSet<SessionId>>,
+}
+
+impl SessionChanges {
+    pub fn take(&self, limit: usize) -> Vec<SessionId> {
+        let mut pending = self.pending.lock();
+        let ids: Vec<_> = pending.iter().take(limit).copied().collect();
+        for id in &ids {
+            pending.remove(id);
+        }
+        ids
+    }
+
+    pub fn extend(&self, ids: impl IntoIterator<Item = SessionId>) {
+        self.pending.lock().extend(ids);
+    }
 }
 
 /// Rows returned for a viewport request.
@@ -476,8 +498,24 @@ impl SessionIndex {
         Arc::new(SessionIndex::default())
     }
 
+    /// Subscribe before taking an initial snapshot so concurrent updates are not missed.
+    pub fn watch_changes(&self) -> Arc<SessionChanges> {
+        let changes = Arc::new(SessionChanges::default());
+        let mut watchers = self.changes.write();
+        watchers.retain(|w| w.strong_count() > 0);
+        watchers.push(Arc::downgrade(&changes));
+        changes
+    }
+
+    fn notify_changes(&self, ids: impl IntoIterator<Item = SessionId> + Clone) {
+        for watcher in self.changes.read().iter().filter_map(Weak::upgrade) {
+            watcher.extend(ids.clone());
+        }
+    }
+
     /// Insert or replace a summary (cheap; folded in on the next tick).
     pub fn upsert(&self, s: SessionSummary) {
+        let id = s.id;
         let mut g = self.inner.write();
         if let Some(&p) = g.pos.get(&s.id) {
             g.rows[p as usize] = s;
@@ -488,6 +526,8 @@ impl SessionIndex {
             g.rows.push(s);
             g.pending_new.push(p);
         }
+        drop(g);
+        self.notify_changes([id]);
     }
 
     /// Modify a row in place.
@@ -496,6 +536,8 @@ impl SessionIndex {
         let Some(&p) = g.pos.get(&id) else { return false };
         f(&mut g.rows[p as usize]);
         g.pending_upd.insert(p);
+        drop(g);
+        self.notify_changes([id]);
         true
     }
 
@@ -508,6 +550,8 @@ impl SessionIndex {
                 g.pending_upd.insert(p);
             }
         }
+        drop(g);
+        self.notify_changes(ids.iter().copied());
     }
 
     pub fn get(&self, id: SessionId) -> Option<SessionSummary> {
@@ -531,6 +575,12 @@ impl SessionIndex {
         self.inner.read().version
     }
 
+    /// Test the current filter, including updates not folded into the view yet.
+    pub fn matches_filter(&self, id: SessionId) -> bool {
+        let g = self.inner.read();
+        g.pos.get(&id).is_some_and(|&p| g.filter.matches(&g.rows[p as usize]))
+    }
+
     /// Remove sessions. Returns the removed ids.
     pub fn remove(&self, ids: &HashSet<SessionId>) -> Vec<SessionId> {
         let mut g = self.inner.write();
@@ -550,15 +600,19 @@ impl SessionIndex {
         g.full_rebuild();
         g.version += 1;
         g.changed |= !removed.is_empty();
+        drop(g);
+        self.notify_changes(removed.iter().copied());
         removed
     }
 
     /// Remove everything.
     pub fn clear(&self) -> Vec<SessionId> {
         let mut g = self.inner.write();
-        let ids = g.rows.iter().map(|r| r.id).collect();
+        let ids: Vec<_> = g.rows.iter().map(|r| r.id).collect();
         let (filter, sort, group) = (g.filter.clone(), g.sort, g.group);
         *g = Inner { filter, sort, group, version: g.version + 1, ..Default::default() };
+        drop(g);
+        self.notify_changes(ids.iter().copied());
         ids
     }
 
@@ -566,6 +620,8 @@ impl SessionIndex {
         let mut g = self.inner.write();
         g.filter = Arc::new(f);
         g.rebuild = true;
+        // A newly visible stored session must be checked as well as new traffic.
+        self.notify_changes(g.rows.iter().map(|r| r.id));
     }
 
     pub fn set_sort(&self, s: Sort) {
@@ -832,6 +888,34 @@ impl SessionIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn change_subscriptions_coalesce_updates_without_consuming_view_changes() {
+        let idx = SessionIndex::new();
+        let changes = idx.watch_changes();
+        idx.upsert(SessionSummary { id: 1, ..Default::default() });
+        idx.update(1, |s| s.comment = "updated".into());
+        idx.upsert(SessionSummary { id: 2, ..Default::default() });
+        let first = changes.take(1);
+        assert_eq!(first.len(), 1);
+        let mut all = first;
+        all.extend(changes.take(10));
+        all.sort_unstable();
+        assert_eq!(all, [1, 2]);
+        assert!(idx.tick(), "subscriptions do not consume the view's pending updates");
+        assert_eq!(idx.view_len(), 2);
+        idx.remove(&HashSet::from([1]));
+        assert_eq!(changes.take(10), [1]);
+        idx.clear();
+        assert_eq!(changes.take(10), [2]);
+        assert!(changes.take(10).is_empty());
+        drop(changes);
+        let next = idx.watch_changes();
+        assert_eq!(idx.changes.read().len(), 1, "completed subscriptions are released");
+        idx.upsert(SessionSummary { id: 1, ..Default::default() });
+        assert!(idx.matches_filter(1), "new rows can be matched before the next view tick");
+        assert_eq!(next.take(10), [1]);
+    }
 
     #[test]
     fn removal_is_reported_by_the_next_tick() {

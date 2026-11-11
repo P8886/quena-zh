@@ -178,6 +178,7 @@ pub struct AppCore {
     /// Charset per body id (decoded prefix examined once).
     pub(crate) charsets: Mutex<std::collections::HashMap<u64, &'static quena_body::text::Encoding>>,
     pub(crate) finds: Mutex<std::collections::HashMap<JobId, Arc<Mutex<find::FindResult>>>>,
+    pub(crate) live_find: Mutex<find::LiveFindState>,
     /// Last diagnostics report (JSON) and the generation of the latest run.
     pub(crate) diag_report: Mutex<diagnostics::DiagSlot>,
     /// Protobuf schemas (`.proto` files, reflection), compiled when needed.
@@ -242,6 +243,7 @@ impl AppCore {
             searches: Mutex::new(Default::default()),
             charsets: Mutex::new(Default::default()),
             finds: Mutex::new(Default::default()),
+            live_find: Mutex::new(Default::default()),
             diag_report: Mutex::new(Default::default()),
             protobuf: protobuf::Schemas::default(),
             autosave: Mutex::new(Default::default()),
@@ -413,6 +415,9 @@ impl AppCore {
                 loop {
                     std::thread::sleep(Duration::from_millis(33));
                     let Some(core) = core.upgrade() else { return };
+                    if core.shut_down.load(std::sync::atomic::Ordering::Relaxed) {
+                        return;
+                    }
                     let cap = core.capture();
                     for l in cap.live_sessions() {
                         l.refresh_sizes();
@@ -420,6 +425,7 @@ impl AppCore {
                     if cap.index.tick() {
                         core.emit("list", ListEvent { version: cap.index.version(), total: cap.index.view_len(), count: cap.index.len() });
                     }
+                    core.live_find_tick();
                     let g = core.jobs.generation();
                     if g != last_jobs_gen && last_jobs.elapsed() >= Duration::from_millis(100) {
                         last_jobs_gen = g;
@@ -482,6 +488,7 @@ impl AppCore {
             capture_dir: cap.dir.display().to_string(),
             uptime_s: self.started.elapsed().as_secs(),
             mock_running: self.mock.lock().is_some(),
+            live_find: self.live_find_status(),
         }
     }
 
@@ -778,6 +785,7 @@ impl AppCore {
         if self.shut_down.swap(true, std::sync::atomic::Ordering::SeqCst) {
             return;
         }
+        self.stop_find();
         let _ = self.stop_capture();
         if let Some(e) = self.engine() {
             e.shutdown(self);

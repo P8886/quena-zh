@@ -34,6 +34,7 @@ export function FindDialog({ onDone }: { onDone: () => void }) {
     decode: true,
     maxBodyMb: 64,
     mark: "gold",
+    continuous: true,
     ...saved,
   });
   const [selectedOnly, setSelectedOnly] = useState(false);
@@ -46,7 +47,7 @@ export function FindDialog({ onDone }: { onDone: () => void }) {
     } catch {
       /* ignore */
     }
-    const opts = { ...o, ids: selectedOnly ? [...get().selection] : [] };
+    const opts = { ...o, ids: selectedOnly ? [...get().selection] : [], continuous: o.continuous && !!o.mark && !selectedOnly };
     const job = await api.findSessions(opts);
     const poll = async () => {
       const r = await api.findResult(job);
@@ -111,6 +112,12 @@ export function FindDialog({ onDone }: { onDone: () => void }) {
         </label>
         <label className="f-check">
           <input type="checkbox" checked={selectedOnly} onChange={(e) => setSelectedOnly(e.target.checked)} /> {t("Selected sessions only")}
+        </label>
+        <label className="f-check" title={!o.mark || selectedOnly
+          ? t("Continuous matching needs a highlight colour and cannot be limited to selected sessions.")
+          : t("New requests and responses are highlighted as they arrive. Stop from the status bar.")}>
+          <input type="checkbox" checked={o.continuous && !!o.mark && !selectedOnly} disabled={!o.mark || selectedOnly}
+            onChange={(e) => up({ continuous: e.target.checked })} /> {t("Keep matching new sessions")}
         </label>
       </div>
       <div className="f-row">

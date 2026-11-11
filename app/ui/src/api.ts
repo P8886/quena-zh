@@ -363,6 +363,7 @@ export interface Status {
   captureDir: string;
   uptimeS: number;
   mockRunning: boolean;
+  liveFind?: { text: string; matches: number } | null;
 }
 
 export interface ReplayBatchInfo {
@@ -1022,6 +1023,7 @@ export interface FindOptions {
   decode: boolean;
   maxBodyMb: number;
   mark: MarkColor | null;
+  continuous: boolean;
 }
 
 export interface FindResult {
@@ -1462,6 +1464,7 @@ export const api = {
   saveBody: (id: SessionId, part: Part, variant: Variant, path: string) => invoke<number>("save_body", { id, part, variant, path }),
   findSessions: (options: FindOptions) => invoke<number>("find_sessions", { options }),
   findResult: (job: number) => invoke<FindResult | null>("find_result", { job }),
+  findStop: () => invoke<void>("find_stop"),
   statistics: (ids: SessionId[]) => invoke<Statistics>("statistics", { ids }),
   jobs: () => invoke<JobInfo[]>("jobs"),
   cancelJob: (id: number) => invoke<boolean>("cancel_job", { id }),
