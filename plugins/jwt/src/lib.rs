@@ -1,4 +1,5 @@
 //! Quena plugin: header inspector for JSON Web Tokens (JWS/JWE).
+#[path = "../../shared/json.rs"]
 pub mod json;
 pub mod jwt;
 

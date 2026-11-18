@@ -7,6 +7,7 @@ pub mod analyzers;
 pub mod canon;
 pub mod fmt;
 pub mod idp;
+#[path = "../../shared/json.rs"]
 pub mod json;
 pub mod model;
 pub mod net;

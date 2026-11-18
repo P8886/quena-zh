@@ -1,5 +1,6 @@
 //! Quena plugin: GraphQL requests and responses → formatted text.
 pub mod gql;
+#[path = "../../shared/json.rs"]
 pub mod json;
 
 #[cfg(target_arch = "wasm32")]
