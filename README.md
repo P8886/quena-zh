@@ -2,14 +2,22 @@
 
 <img src="docs/logo.png" alt="Quena logo" width="128" height="128">
 
-# Quena
+# Quena 中文增强版
+
+基于原项目 [hkiam/quena](https://github.com/hkiam/quena) 的中文增强版本。
+上游基线为 `v0.2.1`，对应提交 `e316ea28a2861ee405cdcdbf5c669a7d368eaf07`。
+原项目由 Maik Hofmann 和 Quena contributors 开发，采用 [Apache-2.0](LICENSE) 许可证，版权与来源声明见 [NOTICE](NOTICE)。
+
+本分支包含简体中文、断点编辑与并发重发、宽布局、会话列表和查找交互等改进。
+提交历史从中文增强工作的第一条提交开始，首条提交的源码快照包含上游项目代码。
+下方的截图、在线手册和上游发行版链接介绍原项目，具体改动可查看本仓库提交记录。
 
 **The easy, intuitive — yet seriously powerful — HTTP(S) debugging proxy. On every desktop.**
 
 Capture, inspect, change and replay HTTP(S) traffic — on macOS, Windows and Linux.<br>
 **And it doesn't stop at showing your traffic: it diagnoses it, and it shows what your AI agents do.**
 
-[![CI](https://github.com/hkiam/quena/actions/workflows/ci.yml/badge.svg)](https://github.com/hkiam/quena/actions/workflows/ci.yml)
+[![CI](https://github.com/P8886/quena-zh/actions/workflows/ci.yml/badge.svg)](https://github.com/P8886/quena-zh/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 ![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey)
 ![Rust](https://img.shields.io/badge/core-Rust-orange?logo=rust)
@@ -432,7 +440,7 @@ Full manual: <https://hkiam.github.io/quena/>
 
 ### Install
 
-Download the installer for your platform from the
+Download the upstream installer for your platform from the
 [Releases](https://github.com/hkiam/quena/releases) page: macOS (`.dmg`, universal for Apple Silicon and
 Intel), Windows (`.exe` / `.msi`, or the **portable ZIP**) and Linux (`.deb`, `.rpm`, AppImage for
 x86_64 and arm64).
@@ -459,8 +467,8 @@ Requirements: [Rust](https://rustup.rs) **1.95+**, [Node.js](https://nodejs.org)
 [Tauri 2 prerequisites](https://tauri.app/start/prerequisites/) for your platform.
 
 ```bash
-git clone https://github.com/hkiam/quena.git
-cd quena
+git clone https://github.com/P8886/quena-zh.git
+cd quena-zh
 
 # UI dependencies
 npm ci --prefix app/ui
