@@ -213,13 +213,13 @@ export class GridController {
     const ro = new ResizeObserver(() => this.resize());
     ro.observe(scroller);
     this.unsub.push(() => ro.disconnect());
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const onTheme = () => {
+    // Observe the applied palette so system and manual changes repaint consistently.
+    const themeObserver = new MutationObserver(() => {
       this.pal = readPalette(scroller);
       this.schedule();
-    };
-    mq.addEventListener("change", onTheme);
-    this.unsub.push(() => mq.removeEventListener("change", onTheme));
+    });
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    this.unsub.push(() => themeObserver.disconnect());
     const onScroll = () => {
       this.stickBottom = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - ROW_H;
       this.onScrollX(scroller.scrollLeft);
@@ -241,13 +241,6 @@ export class GridController {
         if (s.gridNonce !== prev.gridNonce) {
           rowCache.clear();
           this.schedule();
-        }
-        if (s.layout.theme !== prev.layout.theme) {
-          // The document's theme attribute is applied in an effect; read colours after it.
-          requestAnimationFrame(() => {
-            this.pal = readPalette(scroller);
-            this.schedule();
-          });
         }
         if (s.layout.preset !== prev.layout.preset) {
           ROW_H = rowHeightFor(s.layout.preset);

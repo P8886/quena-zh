@@ -3,6 +3,9 @@ import { api, isTauri } from "./api";
 import { setLang } from "./i18n";
 import "./styles.css";
 
+// Match the system while language and saved settings are still loading.
+document.documentElement.dataset.theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+
 // The language is set before the UI modules load, so their constants are translated too.
 async function start() {
   if (isTauri) {

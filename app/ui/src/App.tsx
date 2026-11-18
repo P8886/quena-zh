@@ -127,10 +127,14 @@ function useTheme() {
   const theme = useStore((s) => s.layout.theme ?? "system");
   useEffect(() => {
     const root = document.documentElement;
-    if (theme === "system") delete root.dataset.theme;
-    else root.dataset.theme = theme;
+    const system = window.matchMedia("(prefers-color-scheme: dark)");
+    // Resolve system preference to the same CSS palette used by manual selection.
+    const apply = () => { root.dataset.theme = theme === "system" ? (system.matches ? "dark" : "light") : theme; };
+    apply();
+    if (theme === "system") system.addEventListener("change", apply);
     // Title bar and native controls follow as well.
     if (isTauri) import("@tauri-apps/api/window").then((w) => w.getCurrentWindow().setTheme(theme === "system" ? null : theme)).catch(() => {});
+    return () => system.removeEventListener("change", apply);
   }, [theme]);
 }
 

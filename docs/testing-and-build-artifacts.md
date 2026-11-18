@@ -322,3 +322,42 @@ PATH=/tmp/quena-cargo/bin:$PATH npm exec --prefix app/ui -- tauri build \
 持续匹配涉及的 219 项 Rust 测试及原生命令编译检查沿用前述结果，本轮没有重复编译。
 日志：`/tmp/quena-precommit-20261111-ui-tests.log`、
 `/tmp/quena-precommit-20261111-ui-build.log`。本轮未生成独立 Rust 测试可执行文件或安装包。
+
+## 插件 JSON 解析器与暗色样式去重（2026-11-11）
+
+仅合并 GraphQL、JWT、WebDiag 的重复 JSON 解析器，以及系统／手动暗色的重复配色。
+三个插件通过 `#[path]` 引用 `plugins/shared/json.rs`，保留各自的公开 `json` 模块；
+共用文件与原三份 349 行源码的 SHA-256 完全一致，没有调整解析或格式化行为。
+暗色的 76 项声明集中保留一份，主题应用逻辑将系统偏好解析为亮／暗色，
+会话列表观察实际主题属性变化后刷新 Canvas。入口在语言和设置加载前应用系统主题。
+实现代码净减少 775 行，不含本验证记录。
+
+- 基准提交：`e22c12f09a31a3a208a018f4b864816148f8ad04`，另含本次未提交改动。
+- 源码指纹：`/tmp/quena-dedup-20261111-source.json`，包含新共用文件及原文件删除状态。
+- 改动前的配色与解析器指纹：`/tmp/quena-dedup-before-20261111.json`。
+
+| 检查 | 结果 |
+| --- | --- |
+| 三个插件的 `cargo test` | 220 项通过、0 失败；沿用原有两个忽略项，分别是 50 万会话的耗时及 OAuth 压力测试 |
+| 三个插件的 `cargo check --target wasm32-wasip2` | 全部通过，验证独立插件和 WIT 接口仍能引用共用源码 |
+| `npm test --prefix app/ui` | 31 个文件、236 项通过，0 失败 |
+| `npm run build --prefix app/ui` | TypeScript 类型检查和 Vite 生产构建通过 |
+| 浏览器真实组件、模拟 IPC | 系统亮／暗与手动亮／暗／跟随系统共六种组合、八次状态切换；逐项对比原 CSS 的 80 个根变量及 `color-scheme`，结果一致，Canvas 背景同步更新 |
+| `git diff --check` | 通过 |
+
+插件是独立 Cargo 项目；本轮通过 `/tmp/quena-dedup-20261111-profiles.toml` 提供
+与根项目完全相同的 `local` 配置，复用当前 `target/`、`/tmp/quena-cargo` 和
+`/tmp/quena-rustup`，关闭增量编译，使用 `--locked --offline`。
+测试与 WASM 检查的完整命令、结果及日志路径保存在
+`/tmp/quena-dedup-20261111-rust-results.json`。
+前端日志：`/tmp/quena-dedup-20261111-ui-tests.log`、
+`/tmp/quena-dedup-20261111-ui-build.log`；界面结果：
+`/tmp/quena-dedup-20261111-browser-results.json`，亮／暗截图使用同名前缀。
+开发预览中出现过一次 `ResizeObserver loop` 通知；使用基准提交的四个前端源文件
+替换预览输入后同样复现，记录在 `quena-dedup-20261111-original-*` 临时文件中，
+本次未调整尺寸观察逻辑。亮暗配色及列表重绘检查均通过。
+
+测试后持有 `target/local/.cargo-lock`，逐个通过 `lsof` 确认未被使用，清理
+12 个独立测试可执行文件，共 27,093,504 字节；清理记录：
+`/tmp/quena-dedup-20261111-cleanup.json`。`target/` 约 4.5 GiB，低于 6 GiB。
+验证后的临时预览服务已停止；本轮未生成安装包，保留现有应用、插件资源及交付包。
